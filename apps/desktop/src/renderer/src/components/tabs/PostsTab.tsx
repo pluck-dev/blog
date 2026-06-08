@@ -7,7 +7,7 @@ import { Checkbox } from "@renderer/components/ui/checkbox";
 import { Badge } from "@renderer/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@renderer/components/ui/select";
 import { useToast } from "@renderer/components/toast";
-import { Download, Trash2, ExternalLink, CopyCheck, Scissors } from "lucide-react";
+import { Download, Trash2, ExternalLink, CopyCheck, Scissors, Send } from "lucide-react";
 import type { ExportFormat, Tenant, PostSummary } from "@shared/types";
 
 export default function PostsTab({ tenant, onAfter }: { tenant: Tenant; onAfter: () => void }) {
@@ -100,6 +100,31 @@ export default function PostsTab({ tenant, onAfter }: { tenant: Tenant; onAfter:
     }
   }
 
+  async function runIndexing() {
+    const cfg = await window.api.settings.getIndexing();
+    if (!cfg.has_key) {
+      toast({
+        title: "서비스계정 키 미설정",
+        description: "설정 탭에서 Google 색인 키(JSON)를 먼저 등록하세요.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const targetIds = selected.size > 0 ? Array.from(selected) : undefined;
+    const scope = targetIds ? `선택 ${targetIds.length}건` : "발행글 전체";
+    if (!confirm(`Google 색인 요청을 보냅니다 (${scope}).\nURL 템플릿: ${cfg.url_template}\n하루 쿼터(기본 200건)를 넘기면 보류됩니다. 계속할까요?`)) return;
+    setBusy(true);
+    try {
+      await window.api.jobs.enqueueIndexing({ tenant: tenant.domain, payload: { post_ids: targetIds } });
+      toast({ title: "색인 요청 시작", description: "작업 큐에서 진행 상황을 확인하세요.", variant: "success" });
+      navigate("/jobs");
+    } catch (err) {
+      toast({ title: "색인 요청 실패", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function deleteSelected() {
     if (selected.size === 0) return;
     if (!confirm(`${selected.size}개 완성 글을 삭제할까요? 연결된 글 후보는 다시 대기 상태로 돌아갑니다.`)) return;
@@ -150,6 +175,9 @@ export default function PostsTab({ tenant, onAfter }: { tenant: Tenant; onAfter:
           </Button>
           <Button size="sm" variant="outline" onClick={runPrune} disabled={busy || posts.length === 0}>
             <Scissors className="h-3.5 w-3.5 mr-1" /> 가지치기
+          </Button>
+          <Button size="sm" variant="outline" onClick={runIndexing} disabled={busy || posts.length === 0}>
+            <Send className="h-3.5 w-3.5 mr-1" /> 색인 요청
           </Button>
           <Button size="sm" variant="outline" onClick={deleteSelected} disabled={selected.size === 0}>
             <Trash2 className="h-3.5 w-3.5 mr-1" /> 삭제

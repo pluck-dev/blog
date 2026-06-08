@@ -8,8 +8,9 @@ import { generateAxesViaAi } from "./ai_axes";
 import { ALL_TEMPLATES } from "./prompts";
 import { getWorker } from "./worker";
 import type {
-  Axis, Provider, JobStatus, GeneratePayload, DedupPayload, PrunePayload, Post, ExportFormat,
+  Axis, Provider, JobStatus, GeneratePayload, DedupPayload, PrunePayload, IndexingPayload, Post, ExportFormat,
 } from "@shared/types";
+import { isConfigured } from "./indexing";
 
 function broadcast(channel: string, payload: unknown): void {
   for (const w of BrowserWindow.getAllWindows()) {
@@ -173,9 +174,35 @@ export function registerIpc(): void {
     };
     return db.enqueueJob({ tenant: args.tenant, kind: "prune", payload });
   });
+  ipcMain.handle("jobs:enqueueIndexing", (_e, args: { tenant: string; payload?: IndexingPayload }) => {
+    if (!db.getTenant(args.tenant)) throw new Error("unknown tenant");
+    const payload: IndexingPayload = {
+      post_ids: args.payload?.post_ids,
+      max: args.payload?.max ?? 200,
+      type: args.payload?.type ?? "URL_UPDATED",
+    };
+    return db.enqueueJob({ tenant: args.tenant, kind: "indexing", payload });
+  });
   ipcMain.handle("jobs:list", (_e, args: { tenant?: string | null; status?: JobStatus | null; limit?: number }) =>
     db.listJobs(args ?? {}));
   ipcMain.handle("jobs:cancel", (_e, job_id: string) => db.cancelJob(job_id));
+
+  // 전역 색인(Indexing) 설정
+  ipcMain.handle("settings:getIndexing", () => ({
+    has_key: isConfigured(db.getSetting("google_sa_json")),
+    url_template: db.getSetting("indexing_url_template") ?? "https://{domain}/{slug}",
+  }));
+  ipcMain.handle("settings:setIndexing", (_e, args: { sa_json?: string | null; url_template?: string | null }) => {
+    if (args.sa_json !== undefined) {
+      const trimmed = (args.sa_json ?? "").trim();
+      if (trimmed && !isConfigured(trimmed)) throw new Error("서비스계정 JSON 형식이 올바르지 않습니다(client_email/private_key 필요).");
+      db.setSetting("google_sa_json", trimmed || null);
+    }
+    if (args.url_template !== undefined) {
+      db.setSetting("indexing_url_template", (args.url_template ?? "").trim() || null);
+    }
+    return { has_key: isConfigured(db.getSetting("google_sa_json")) };
+  });
 
   // Metadata
   ipcMain.handle("meta:templates", () => ALL_TEMPLATES);

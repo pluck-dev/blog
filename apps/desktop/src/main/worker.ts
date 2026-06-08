@@ -1,5 +1,5 @@
 import { EventEmitter } from "events";
-import type { Provider, JobProgressEvent, GeneratePayload, DedupPayload, DedupResult, PrunePayload, PruneResult, JobLogEntry } from "@shared/types";
+import type { Provider, JobProgressEvent, GeneratePayload, DedupPayload, DedupResult, PrunePayload, PruneResult, IndexingPayload, IndexingResult, JobLogEntry } from "@shared/types";
 import * as db from "./db";
 import { renderPrompt, type SlotForPrompt } from "./prompts";
 import { runLlm } from "./llm";
@@ -7,6 +7,7 @@ import { qualitySummary, retryPrompt, validatePost, type QualityReport } from ".
 import { collectWebFacts, findUnsupportedAcademyNames } from "./web_research";
 import { findDuplicateClusters, normalize } from "./dedup";
 import { parseRateSignal, nextBackoffSec } from "./rate_limit";
+import { isConfigured, parseServiceAccount, getAccessToken, submitUrl, buildPostUrl } from "./indexing";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -93,6 +94,17 @@ export class Worker extends EventEmitter {
             message: result.dry_run
               ? `미리보기: 약한글 ${result.thin_noindexed} / 수명종료 ${result.stale_deleted}`
               : `약한글 noindex ${result.thin_noindexed} / 오래된 글 삭제 ${result.stale_deleted}`,
+          });
+        } else if (job.kind === "indexing") {
+          const result = await this.processIndexing(job.id, job.tenant, job.payload_obj as unknown as IndexingPayload);
+          db.completeJob(job.id, { ok: true, result: result as unknown as Record<string, unknown> });
+          this.emitProgress({
+            job_id: job.id, tenant: job.tenant, phase: "complete",
+            done: result.submitted + result.failed, total: result.total,
+            ok: result.submitted, fail: result.failed,
+            message: result.configured
+              ? `색인 요청: 성공 ${result.submitted} / 실패 ${result.failed}${result.skipped_quota ? ` / 쿼터초과 ${result.skipped_quota}` : ""}`
+              : (result.message ?? "서비스계정 키 미설정"),
           });
         } else {
           db.completeJob(job.id, { ok: false, error: `unsupported kind: ${job.kind}` });
@@ -411,6 +423,67 @@ export class Worker extends EventEmitter {
       stale_deleted: stale,
       dry_run: dryRun,
     };
+  }
+
+  private async processIndexing(jobId: string, tenant: string, payload: IndexingPayload): Promise<IndexingResult> {
+    const saJson = db.getSetting("google_sa_json");
+    // 키 미설정 → 안전하게 비활성(작업은 정상 완료, 메시지로 안내)
+    if (!isConfigured(saJson)) {
+      const message = "Google 서비스계정 키가 미설정입니다. 설정 탭에서 키를 등록하세요.";
+      this.emitProgress({
+        job_id: jobId, tenant, phase: "index_submit",
+        done: 0, total: 0, ok: 0, fail: 0, message,
+      });
+      return { configured: false, total: 0, submitted: 0, failed: 0, skipped_quota: 0, message };
+    }
+
+    const template = db.getSetting("indexing_url_template") || "https://{domain}/{slug}";
+    const type = payload.type ?? "URL_UPDATED";
+    const maxQuota = payload.max ?? 200;
+
+    // 대상: 지정 글 또는 발행글 전체
+    let posts = db.listPosts({ tenant, status: "published", limit: 100000 });
+    if (payload.post_ids?.length) {
+      const set = new Set(payload.post_ids);
+      posts = posts.filter((p) => set.has(p.id));
+    }
+    const total = posts.length;
+    const targets = posts.slice(0, maxQuota);
+    const skipped_quota = total - targets.length;
+
+    this.emitProgress({
+      job_id: jobId, tenant, phase: "index_submit",
+      done: 0, total: targets.length, ok: 0, fail: 0,
+      message: `색인 요청 시작 — 대상 ${targets.length}건${skipped_quota ? ` (쿼터 ${maxQuota} 초과 ${skipped_quota}건 보류)` : ""}`,
+    });
+
+    let token: string;
+    try {
+      token = await getAccessToken(parseServiceAccount(saJson));
+    } catch (err) {
+      const message = `토큰 발급 실패: ${(err as Error).message}`;
+      return { configured: true, total, submitted: 0, failed: targets.length, skipped_quota, message };
+    }
+
+    let submitted = 0;
+    let failed = 0;
+    for (let i = 0; i < targets.length; i++) {
+      if (this.stopped || db.isJobCancelRequested(jobId)) break;
+      const url = buildPostUrl(template, tenant, targets[i].slug);
+      const r = await submitUrl(token, url, type);
+      if (r.ok) submitted += 1;
+      else failed += 1;
+      if ((i + 1) % 5 === 0 || i === targets.length - 1) {
+        this.emitProgress({
+          job_id: jobId, tenant, phase: "index_submit",
+          done: i + 1, total: targets.length, ok: submitted, fail: failed,
+          message: `제출 ${i + 1}/${targets.length}`,
+        });
+      }
+      await sleep(120); // 과도한 호출 방지
+    }
+
+    return { configured: true, total, submitted, failed, skipped_quota };
   }
 
   private emitProgress(ev: JobProgressEvent): void {

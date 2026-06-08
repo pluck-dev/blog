@@ -103,6 +103,12 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status_sched
   ON jobs(status, scheduled_at);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  key             TEXT PRIMARY KEY,
+  value           TEXT,
+  updated_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `;
 
 let _db: Database.Database | null = null;
@@ -418,6 +424,19 @@ export function listPostsForDedup(tenant: string, includeNoindex = false): PostF
 /** 포스트 상태 갱신(예: 중복 → noindex). */
 export function updatePostStatus(postId: string, status: PostStatus): void {
   db().prepare(`UPDATE posts SET status=? WHERE id=?`).run(status, postId);
+}
+
+// ---- 전역 앱 설정 (KV) ----
+export function getSetting(key: string): string | null {
+  const row = db().prepare(`SELECT value FROM app_settings WHERE key=?`).get(key) as { value: string | null } | undefined;
+  return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string | null): void {
+  db().prepare(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`,
+  ).run(key, value);
 }
 
 // ---------- Jobs ----------

@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 import type {
   Tenant, Slot, Post, PostSummary, AxisValue, Axis, JobWithPayload,
-  SlotCounts, JobProgressEvent, GeneratePayload, DedupPayload, PrunePayload, Provider, ExportFormat,
+  SlotCounts, JobProgressEvent, GeneratePayload, DedupPayload, PrunePayload, IndexingPayload, Provider, ExportFormat,
 } from "@shared/types";
 
 // bind 된 함수는 contextBridge 가 거부할 수 있어서 일반 closure 로 감싼다.
@@ -55,6 +55,7 @@ const api = {
     enqueue: (args: { tenant: string; payload: GeneratePayload }): Promise<string> => invoke("jobs:enqueue", args),
     enqueueDedup: (args: { tenant: string; payload?: DedupPayload }): Promise<string> => invoke("jobs:enqueueDedup", args),
     enqueuePrune: (args: { tenant: string; payload?: PrunePayload }): Promise<string> => invoke("jobs:enqueuePrune", args),
+    enqueueIndexing: (args: { tenant: string; payload?: IndexingPayload }): Promise<string> => invoke("jobs:enqueueIndexing", args),
     list: (args: { tenant?: string | null; status?: string | null; limit?: number }): Promise<JobWithPayload[]> =>
       invoke("jobs:list", args),
     cancel: (job_id: string): Promise<boolean> => invoke("jobs:cancel", job_id),
@@ -63,6 +64,11 @@ const api = {
       ipcRenderer.on("worker:progress", wrapped);
       return () => ipcRenderer.removeListener("worker:progress", wrapped);
     },
+  },
+  settings: {
+    getIndexing: (): Promise<{ has_key: boolean; url_template: string }> => invoke("settings:getIndexing"),
+    setIndexing: (args: { sa_json?: string | null; url_template?: string | null }): Promise<{ has_key: boolean }> =>
+      invoke("settings:setIndexing", args),
   },
   meta: {
     templates: (): Promise<string[]> => invoke("meta:templates"),

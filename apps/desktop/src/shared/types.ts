@@ -157,6 +157,24 @@ export interface PruneResult {
   dry_run: boolean;
 }
 
+export interface IndexingPayload {
+  /** 특정 글만 제출. 없으면 발행글 전체. */
+  post_ids?: string[];
+  /** 제출 상한(쿼터). 기본 200 */
+  max?: number;
+  /** 기본 URL_UPDATED */
+  type?: "URL_UPDATED" | "URL_DELETED";
+}
+
+export interface IndexingResult {
+  configured: boolean;
+  total: number;
+  submitted: number;
+  failed: number;
+  skipped_quota: number;
+  message?: string;
+}
+
 export interface SlotCounts {
   planned: number;
   in_progress: number;
@@ -168,7 +186,7 @@ export interface SlotCounts {
 export interface JobProgressEvent {
   job_id: string;
   tenant: string;
-  phase: "start" | "slot_start" | "slot_done" | "slot_fail" | "cooldown" | "complete" | "failed" | "dedup_scan" | "dedup_mark" | "prune_scan" | "prune_mark";
+  phase: "start" | "slot_start" | "slot_done" | "slot_fail" | "cooldown" | "complete" | "failed" | "dedup_scan" | "dedup_mark" | "prune_scan" | "prune_mark" | "index_submit";
   message?: string;
   slot_id?: string;
   done: number;
