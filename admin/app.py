@@ -552,3 +552,39 @@ def api_public_sitemap(domain: str, base_url: str = ""):
         f"{urls}</urlset>"
     )
     return Response(content=xml, media_type="application/xml")
+
+
+# ---------- 학원 데이터 수신 API (검증된 자료 주입용) ----------
+# 외부에서 학원 정보를 push 하면, 생성 시 해당 지역 슬롯의 '검증된 자료'로 주입된다.
+# 쓰기 보호: INGEST_TOKEN 환경변수가 설정돼 있으면 token 파라미터/헤더 일치 필요.
+
+def _check_ingest_token(request: Request, token: str) -> None:
+    expected = os.environ.get("INGEST_TOKEN", "")
+    if not expected:
+        return
+    supplied = token or request.headers.get("x-ingest-token", "")
+    if supplied != expected:
+        raise HTTPException(401, "bad ingest token")
+
+
+@app.post("/api/v1/{domain}/academies")
+async def api_upsert_academies(domain: str, request: Request, token: str = ""):
+    """학원 데이터 업로드(JSON 배열 또는 {items:[...]}). 지역(region)·이름(name)으로 upsert."""
+    _check_ingest_token(request, token)
+    if not db.get_tenant(domain):
+        raise HTTPException(404, "unknown domain")
+    body = await request.json()
+    rows = body.get("items") if isinstance(body, dict) else body
+    if not isinstance(rows, list):
+        raise HTTPException(400, "expected a JSON array of academies (or {items:[...]})")
+    n = db.upsert_academies(domain, rows)
+    return JSONResponse({"domain": domain, "upserted": n})
+
+
+@app.get("/api/v1/{domain}/academies")
+def api_list_academies(domain: str, request: Request, region: str = "", token: str = "", limit: int = 50):
+    _check_ingest_token(request, token)
+    if not db.get_tenant(domain):
+        raise HTTPException(404, "unknown domain")
+    items = db.list_academies(domain, region=region or None, limit=max(1, min(limit, 500)))
+    return JSONResponse({"domain": domain, "region": region or None, "count": len(items), "items": items})

@@ -115,6 +115,28 @@ CREATE TABLE IF NOT EXISTS app_settings (
   value           TEXT,
   updated_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS academies (
+  id              TEXT PRIMARY KEY,
+  tenant          TEXT NOT NULL,
+  region          TEXT,
+  name            TEXT NOT NULL,
+  address         TEXT,
+  price           TEXT,
+  shuttle         TEXT,
+  hours           TEXT,
+  pass_rate       TEXT,
+  phone           TEXT,
+  review          TEXT,
+  extra           TEXT,
+  source_name     TEXT,
+  source_url      TEXT,
+  created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (tenant, region, name),
+  FOREIGN KEY (tenant) REFERENCES tenants(domain) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_academies_tenant_region
+  ON academies(tenant, region);
 """
 
 
@@ -432,6 +454,66 @@ def set_setting(key: str, value: str | None) -> None:
                ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP""",
             (key, value),
         )
+
+
+# ---------- Academies (검증된 학원 자료) ----------
+
+_ACAD_FIELDS = ("region", "name", "address", "price", "shuttle", "hours",
+                "pass_rate", "phone", "review", "extra", "source_name", "source_url")
+
+
+def upsert_academies(tenant: str, rows: list[dict]) -> int:
+    n = 0
+    with connect() as con:
+        for r in rows:
+            name = (r.get("name") or "").strip()
+            if not name:
+                continue
+            extra = r.get("extra")
+            if isinstance(extra, (dict, list)):
+                extra = json.dumps(extra, ensure_ascii=False)
+            con.execute(
+                """INSERT INTO academies
+                   (id, tenant, region, name, address, price, shuttle, hours,
+                    pass_rate, phone, review, extra, source_name, source_url)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(tenant, region, name) DO UPDATE SET
+                     address=excluded.address, price=excluded.price,
+                     shuttle=excluded.shuttle, hours=excluded.hours,
+                     pass_rate=excluded.pass_rate, phone=excluded.phone,
+                     review=excluded.review, extra=excluded.extra,
+                     source_name=excluded.source_name, source_url=excluded.source_url""",
+                (str(uuid.uuid4()), tenant, (r.get("region") or "").strip(), name,
+                 r.get("address"), r.get("price"), r.get("shuttle"), r.get("hours"),
+                 r.get("pass_rate"), r.get("phone"), r.get("review"), extra,
+                 r.get("source_name"), r.get("source_url")),
+            )
+            n += 1
+    return n
+
+
+def list_academies(tenant: str, *, region: str | None = None, limit: int = 20) -> list[dict]:
+    sql = "SELECT * FROM academies WHERE tenant=?"
+    args: list = [tenant]
+    if region:
+        sql += " AND region=?"
+        args.append(region)
+    sql += " ORDER BY name LIMIT ?"
+    args.append(limit)
+    with connect() as con:
+        rows = con.execute(sql, args).fetchall()
+    return rows_to_list(rows)
+
+
+def delete_academies(tenant: str, *, region: str | None = None) -> int:
+    sql = "DELETE FROM academies WHERE tenant=?"
+    args: list = [tenant]
+    if region:
+        sql += " AND region=?"
+        args.append(region)
+    with connect() as con:
+        cur = con.execute(sql, args)
+        return cur.rowcount
 
 
 # ---------- Jobs ----------

@@ -61,6 +61,43 @@ def _extract_title(markdown_text: str, fallback: str) -> str:
     return fallback
 
 
+def _strip_preamble(markdown_text: str) -> str:
+    """LLM 이 본문 앞에 붙인 메타 코멘트(예: '파일 저장 권한이 없어...')를 제거.
+    첫 '# ' H1 헤딩부터를 본문으로 간주."""
+    lines = markdown_text.splitlines()
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("# "):
+            return "\n".join(lines[i:]).strip()
+    return markdown_text.strip()
+
+
+_ACAD_LABELS = [("주소", "address"), ("수강료", "price"), ("셔틀", "shuttle"),
+                ("영업시간", "hours"), ("합격률", "pass_rate"), ("전화", "phone"),
+                ("후기", "review")]
+
+
+def _build_facts(tenant: str, slot: dict) -> str:
+    """슬롯 지역(region)에 해당하는 학원 자료를 번호매긴 '검증된 자료' 텍스트로."""
+    region = slot.get("region") or ""
+    if not region:
+        return ""
+    academies = db.list_academies(tenant, region=region, limit=5)
+    if not academies:
+        return ""
+    lines: list[str] = []
+    for i, a in enumerate(academies, 1):
+        parts = [f"[{i}] {a['name']}"]
+        for label, key in _ACAD_LABELS:
+            v = a.get(key)
+            if v:
+                parts.append(f"{label}: {v}")
+        src = " ".join(filter(None, [a.get("source_name"), a.get("source_url")])).strip()
+        if src:
+            parts.append(f"(출처: {src})")
+        lines.append(" / ".join(parts))
+    return "\n".join(lines)
+
+
 async def _process_generate(job: dict) -> dict:
     payload = job["payload_obj"]
     tenant = job["tenant"]
@@ -87,9 +124,13 @@ async def _process_generate(job: dict) -> dict:
             fail += 1
             continue
 
-        prompt = prompt_lib.render(_slot_to_prompt_dict(slot))
-        log.info("generating slot=%s provider=%s template=%s (%d chars prompt)",
-                 sid, provider, slot["template_id"], len(prompt))
+        prompt_dict = _slot_to_prompt_dict(slot)
+        facts = _build_facts(tenant, slot)          # 지역 학원 자료 주입
+        prompt_dict["facts"] = facts
+        require_sources = bool(facts)
+        prompt = prompt_lib.render(prompt_dict)
+        log.info("generating slot=%s provider=%s template=%s (%d chars prompt, facts=%s)",
+                 sid, provider, slot["template_id"], len(prompt), "있음" if facts else "없음")
         db.update_slot_status(sid, "in_progress")
 
         result = None
@@ -100,11 +141,13 @@ async def _process_generate(job: dict) -> dict:
             result = await run_llm(
                 active_prompt, provider=provider, model=model or "", timeout_sec=timeout_sec,
             )
+            if result.summary:
+                result.summary = _strip_preamble(result.summary)  # LLM 군더더기 제거
             if not result.ok or not result.summary.strip():
                 if attempt < max_attempts:
                     continue
                 break
-            report = quality.validate_post(result.summary)
+            report = quality.validate_post(result.summary, require_sources=require_sources)
             if report.ok:
                 log.info("quality OK slot=%s attempt=%d/%d: %s",
                          sid, attempt, max_attempts, report.summary())
@@ -112,7 +155,7 @@ async def _process_generate(job: dict) -> dict:
             log.warning("quality FAIL slot=%s attempt=%d/%d: %s",
                         sid, attempt, max_attempts, report.summary())
             if attempt < max_attempts:
-                active_prompt = quality.retry_prompt(prompt, report)
+                active_prompt = quality.retry_prompt(prompt, report, require_sources=require_sources)
 
         assert result is not None
 

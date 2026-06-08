@@ -12,10 +12,10 @@ BRAND = os.environ.get("SEO_BRAND_NAME", "운전면허플러스")
 COMPETITORS = ["운전선생"]
 
 
-# 운전선생 실측 기준으로 하향 조정 (실제 양산글 본문 ~2,500~2,800자).
-# 기존 3,200~6,500자는 실제보다 과도하게 길어 늘어지는 글을 유발했음.
-MIN_TEXT_CHARS = 2300
-MAX_TEXT_CHARS = 3600
+# 본문 길이 기준. 환경변수로 조정 가능(데스크탑 TS 쪽과 일치).
+# 실측: 모델이 순수텍스트 기준 1,700~2,200자로 생성하는 경향 → 기본 하한 1,500.
+MIN_TEXT_CHARS = int(os.environ.get("SEO_QUALITY_MIN_TEXT_CHARS", "1500"))
+MAX_TEXT_CHARS = int(os.environ.get("SEO_QUALITY_MAX_TEXT_CHARS", "6500"))
 MIN_H2 = 4
 MAX_H2 = 8
 MIN_IMAGE_SLOTS = 3

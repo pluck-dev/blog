@@ -219,10 +219,27 @@ TEMPLATE_REGISTRY: dict[str, Callable[[dict], str]] = {
 }
 
 
+def _facts_section(slot: dict) -> str:
+    """검증된 학원 자료(facts) 주입 섹션. 워커가 slot['facts'] 에 번호매긴 자료를 채워준다."""
+    facts = (slot.get("facts") or "").strip()
+    if facts:
+        return (
+            "검증된 자료 (아래 [번호]를 본문 인용과 '## 참고자료' 섹션에 사용):\n"
+            f"{facts}\n\n"
+            "규칙: 위 자료에 있는 상호명·주소·수강료·셔틀·합격률만 사용하고, 해당 수치 문장 끝에 [번호]를 다세요. "
+            "자료에 없는 정보는 지어내지 말고 '상담 시 확인'으로 쓰세요. "
+            "본문에서 인용한 출처만 '## 참고자료'에 '번호. 출처명 — URL' 형식으로 나열하세요."
+        )
+    return (
+        "검증된 자료: (없음) — 실제 상호명·가격·후기·합격률을 지어내지 말고, "
+        "'고르는 기준'·'상담 시 확인' 중심으로 작성하고 '## 참고자료' 섹션은 생략하세요."
+    )
+
+
 def render(slot: dict) -> str:
-    """슬롯의 template_id 에 맞는 프롬프트 빌더를 호출."""
+    """슬롯의 template_id 에 맞는 프롬프트 빌더를 호출하고, 검증된 자료(facts)를 주입."""
     tid = slot.get("template_id") or ""
     builder = TEMPLATE_REGISTRY.get(tid)
     if builder is None:
         raise ValueError(f"unknown template_id: {tid!r} (slot {slot.get('slot_id')})")
-    return builder(slot)
+    return f"{builder(slot)}\n\n{_facts_section(slot)}"
