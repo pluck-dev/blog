@@ -141,6 +141,22 @@ export interface DedupResult {
   details: { canonical_id: string; duplicate_ids: string[]; max_similarity: number; size: number }[];
 }
 
+export interface PrunePayload {
+  /** 본문(정규화) 길이가 이 미만인 발행글을 noindex 처리. 기본 700 */
+  min_body_chars?: number;
+  /** noindex 된 지 이 일수 이상이면 deleted(410). 기본 90 */
+  stale_noindex_days?: number;
+  /** true면 상태 변경 없이 집계만(미리보기). */
+  dry_run?: boolean;
+}
+
+export interface PruneResult {
+  total_posts: number;
+  thin_noindexed: number;
+  stale_deleted: number;
+  dry_run: boolean;
+}
+
 export interface SlotCounts {
   planned: number;
   in_progress: number;
@@ -152,7 +168,7 @@ export interface SlotCounts {
 export interface JobProgressEvent {
   job_id: string;
   tenant: string;
-  phase: "start" | "slot_start" | "slot_done" | "slot_fail" | "cooldown" | "complete" | "failed" | "dedup_scan" | "dedup_mark";
+  phase: "start" | "slot_start" | "slot_done" | "slot_fail" | "cooldown" | "complete" | "failed" | "dedup_scan" | "dedup_mark" | "prune_scan" | "prune_mark";
   message?: string;
   slot_id?: string;
   done: number;

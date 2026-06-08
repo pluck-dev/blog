@@ -8,7 +8,7 @@ import { generateAxesViaAi } from "./ai_axes";
 import { ALL_TEMPLATES } from "./prompts";
 import { getWorker } from "./worker";
 import type {
-  Axis, Provider, JobStatus, GeneratePayload, DedupPayload, Post, ExportFormat,
+  Axis, Provider, JobStatus, GeneratePayload, DedupPayload, PrunePayload, Post, ExportFormat,
 } from "@shared/types";
 
 function broadcast(channel: string, payload: unknown): void {
@@ -163,6 +163,15 @@ export function registerIpc(): void {
       dry_run: args.payload?.dry_run ?? false,
     };
     return db.enqueueJob({ tenant: args.tenant, kind: "dedup", payload });
+  });
+  ipcMain.handle("jobs:enqueuePrune", (_e, args: { tenant: string; payload?: PrunePayload }) => {
+    if (!db.getTenant(args.tenant)) throw new Error("unknown tenant");
+    const payload: PrunePayload = {
+      min_body_chars: args.payload?.min_body_chars ?? 700,
+      stale_noindex_days: args.payload?.stale_noindex_days ?? 90,
+      dry_run: args.payload?.dry_run ?? false,
+    };
+    return db.enqueueJob({ tenant: args.tenant, kind: "prune", payload });
   });
   ipcMain.handle("jobs:list", (_e, args: { tenant?: string | null; status?: JobStatus | null; limit?: number }) =>
     db.listJobs(args ?? {}));

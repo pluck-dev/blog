@@ -7,7 +7,7 @@ import { Checkbox } from "@renderer/components/ui/checkbox";
 import { Badge } from "@renderer/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@renderer/components/ui/select";
 import { useToast } from "@renderer/components/toast";
-import { Download, Trash2, ExternalLink, CopyCheck } from "lucide-react";
+import { Download, Trash2, ExternalLink, CopyCheck, Scissors } from "lucide-react";
 import type { ExportFormat, Tenant, PostSummary } from "@shared/types";
 
 export default function PostsTab({ tenant, onAfter }: { tenant: Tenant; onAfter: () => void }) {
@@ -81,6 +81,25 @@ export default function PostsTab({ tenant, onAfter }: { tenant: Tenant; onAfter:
     }
   }
 
+  async function runPrune() {
+    if (!confirm(
+      "약한 글과 수명이 끝난 글을 정리합니다.\n" +
+      "· 본문 700자 미만 발행글 → noindex(검색에서 내림)\n" +
+      "· noindex된 지 90일 넘은 글 → 삭제(410)\n" +
+      "상태만 바꾸므로 되돌릴 수 있습니다. 계속할까요?",
+    )) return;
+    setBusy(true);
+    try {
+      await window.api.jobs.enqueuePrune({ tenant: tenant.domain, payload: { min_body_chars: 700, stale_noindex_days: 90 } });
+      toast({ title: "가지치기 시작", description: "작업 큐에 등록됨 — 진행 상황은 작업 큐에서 확인하세요.", variant: "success" });
+      navigate("/jobs");
+    } catch (err) {
+      toast({ title: "가지치기 실패", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function deleteSelected() {
     if (selected.size === 0) return;
     if (!confirm(`${selected.size}개 완성 글을 삭제할까요? 연결된 글 후보는 다시 대기 상태로 돌아갑니다.`)) return;
@@ -128,6 +147,9 @@ export default function PostsTab({ tenant, onAfter }: { tenant: Tenant; onAfter:
           </span>
           <Button size="sm" variant="outline" onClick={runDedup} disabled={busy || posts.length < 2}>
             <CopyCheck className="h-3.5 w-3.5 mr-1" /> 중복 검사
+          </Button>
+          <Button size="sm" variant="outline" onClick={runPrune} disabled={busy || posts.length === 0}>
+            <Scissors className="h-3.5 w-3.5 mr-1" /> 가지치기
           </Button>
           <Button size="sm" variant="outline" onClick={deleteSelected} disabled={selected.size === 0}>
             <Trash2 className="h-3.5 w-3.5 mr-1" /> 삭제

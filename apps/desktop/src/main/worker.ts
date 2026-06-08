@@ -1,11 +1,11 @@
 import { EventEmitter } from "events";
-import type { Provider, JobProgressEvent, GeneratePayload, DedupPayload, DedupResult, JobLogEntry } from "@shared/types";
+import type { Provider, JobProgressEvent, GeneratePayload, DedupPayload, DedupResult, PrunePayload, PruneResult, JobLogEntry } from "@shared/types";
 import * as db from "./db";
 import { renderPrompt, type SlotForPrompt } from "./prompts";
 import { runLlm } from "./llm";
 import { qualitySummary, retryPrompt, validatePost, type QualityReport } from "./quality";
 import { collectWebFacts, findUnsupportedAcademyNames } from "./web_research";
-import { findDuplicateClusters } from "./dedup";
+import { findDuplicateClusters, normalize } from "./dedup";
 import { parseRateSignal, nextBackoffSec } from "./rate_limit";
 
 const POLL_INTERVAL_MS = 3000;
@@ -81,6 +81,18 @@ export class Worker extends EventEmitter {
             message: result.dry_run
               ? `중복 ${result.duplicates_found}건 발견(미리보기, 표시 안 함)`
               : `중복 ${result.duplicates_found}건 → noindex ${result.marked_noindex}건 처리`,
+          });
+        } else if (job.kind === "prune") {
+          const result = await this.processPrune(job.id, job.tenant, job.payload_obj as unknown as PrunePayload);
+          db.completeJob(job.id, { ok: true, result: result as unknown as Record<string, unknown> });
+          this.emitProgress({
+            job_id: job.id, tenant: job.tenant, phase: "complete",
+            done: result.thin_noindexed + result.stale_deleted,
+            total: result.thin_noindexed + result.stale_deleted,
+            ok: result.thin_noindexed + result.stale_deleted, fail: 0,
+            message: result.dry_run
+              ? `미리보기: 약한글 ${result.thin_noindexed} / 수명종료 ${result.stale_deleted}`
+              : `약한글 noindex ${result.thin_noindexed} / 오래된 글 삭제 ${result.stale_deleted}`,
           });
         } else {
           db.completeJob(job.id, { ok: false, error: `unsupported kind: ${job.kind}` });
@@ -342,6 +354,62 @@ export class Worker extends EventEmitter {
       marked_noindex: marked,
       dry_run: dryRun,
       details: clusters,
+    };
+  }
+
+  private async processPrune(jobId: string, tenant: string, payload: PrunePayload): Promise<PruneResult> {
+    const minChars = payload.min_body_chars ?? 700;
+    const staleDays = payload.stale_noindex_days ?? 90;
+    const dryRun = payload.dry_run === true;
+
+    // published + noindex 글(본문·상태·생성일 포함)
+    const posts = db.listPostsForDedup(tenant, true);
+    this.emitProgress({
+      job_id: jobId, tenant, phase: "prune_scan",
+      done: 0, total: posts.length, ok: 0, fail: 0,
+      message: `글 ${posts.length}건 가지치기 검사 (약한글<${minChars}자, 수명 ${staleDays}일)`,
+    });
+
+    const nowMs = Date.now();
+    const ageDays = (ts: string): number => {
+      // SQLite CURRENT_TIMESTAMP('YYYY-MM-DD HH:MM:SS', UTC) → 안전 파싱
+      const ms = Date.parse(ts.includes("T") ? ts : ts.replace(" ", "T") + "Z");
+      if (Number.isNaN(ms)) return 0;
+      return (nowMs - ms) / 86_400_000;
+    };
+
+    let thin = 0;
+    let stale = 0;
+    let processed = 0;
+    for (const p of posts) {
+      if (p.status === "published") {
+        // 약한 글: 정규화 본문 길이가 기준 미만 → noindex
+        if (normalize(p.body_markdown).length < minChars) {
+          if (!dryRun) db.updatePostStatus(p.id, "noindex");
+          thin += 1;
+        }
+      } else if (p.status === "noindex") {
+        // 수명 종료: 오래된 noindex → deleted(410)
+        if (ageDays(p.generated_at) >= staleDays) {
+          if (!dryRun) db.updatePostStatus(p.id, "deleted");
+          stale += 1;
+        }
+      }
+      processed += 1;
+      if (processed % 25 === 0 || processed === posts.length) {
+        this.emitProgress({
+          job_id: jobId, tenant, phase: "prune_mark",
+          done: processed, total: posts.length, ok: thin + stale, fail: 0,
+          message: `검사 ${processed}/${posts.length} — 약한글 ${thin}, 수명종료 ${stale}`,
+        });
+      }
+    }
+
+    return {
+      total_posts: posts.length,
+      thin_noindexed: thin,
+      stale_deleted: stale,
+      dry_run: dryRun,
     };
   }
 
