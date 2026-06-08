@@ -109,6 +109,12 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status_sched
   ON jobs(status, scheduled_at);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  key             TEXT PRIMARY KEY,
+  value           TEXT,
+  updated_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -389,6 +395,43 @@ def insert_post(*, tenant: str, slot_id: str | None, slug: str, title: str,
 def delete_post(post_id: str) -> None:
     with connect() as con:
         con.execute("DELETE FROM posts WHERE id=?", (post_id,))
+
+
+def update_post_status(post_id: str, status: str) -> None:
+    with connect() as con:
+        con.execute("UPDATE posts SET status=? WHERE id=?", (status, post_id))
+
+
+def list_posts_for_dedup(tenant: str, *, include_noindex: bool = False) -> list[dict]:
+    """중복/가지치기용 — 본문 포함 + 슬롯 priority 조인."""
+    statuses = "('published','noindex')" if include_noindex else "('published')"
+    sql = f"""SELECT p.id, p.slug, p.title, p.body_markdown, p.status, p.generated_at,
+                     s.priority_score AS priority_score
+              FROM posts p
+              LEFT JOIN slots s ON s.slot_id = p.slot_id
+              WHERE p.tenant=? AND p.status IN {statuses}
+              ORDER BY p.generated_at ASC"""
+    with connect() as con:
+        rows = con.execute(sql, (tenant,)).fetchall()
+    return rows_to_list(rows)
+
+
+# ---------- App settings (KV) ----------
+
+def get_setting(key: str) -> str | None:
+    with connect() as con:
+        row = con.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_setting(key: str, value: str | None) -> None:
+    with connect() as con:
+        con.execute(
+            """INSERT INTO app_settings (key, value, updated_at)
+               VALUES (?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP""",
+            (key, value),
+        )
 
 
 # ---------- Jobs ----------

@@ -20,6 +20,9 @@ import time
 
 from . import db
 from runtime import images, prompts as prompt_lib, publish, quality
+from runtime import dedup as dedup_lib
+from runtime import rate_limit as rl
+from runtime import indexing as indexing_lib
 from runtime.llm import run_llm
 
 log = logging.getLogger("admin.worker")
@@ -69,6 +72,7 @@ async def _process_generate(job: dict) -> dict:
 
     ok = fail = 0
     per_slot: list[dict] = []
+    rl_backoff_sec = 0  # 레이트리밋 압력 적응 백오프(슬롯 간)
 
     for i, sid in enumerate(slot_ids):
         slot = db.get_slot(sid)
@@ -164,11 +168,128 @@ async def _process_generate(job: dict) -> dict:
                      len(result.summary))
             ok += 1
 
-        if i < len(slot_ids) - 1 and cooldown_sec > 0:
-            log.info("cooldown %ds", cooldown_sec)
-            await asyncio.sleep(cooldown_sec)
+        # 레이트리밋 신호로 적응 백오프 갱신
+        signal = rl.parse_rate_signal(getattr(result, "rate_limit", None))
+        rl_backoff_sec = rl.next_backoff_sec(signal, rl_backoff_sec)
+        if rl_backoff_sec > 0:
+            pct = f"{round(signal.pressure * 100)}%" if signal.pressure is not None else "?"
+            log.warning("레이트리밋 압력(%s%s) → 추가 대기 %ds", pct,
+                        f", {signal.status}" if signal.status else "", rl_backoff_sec)
+
+        effective_cooldown = cooldown_sec + rl_backoff_sec
+        if i < len(slot_ids) - 1 and effective_cooldown > 0:
+            log.info("cooldown %ds%s", effective_cooldown,
+                     f" (레이트리밋 +{rl_backoff_sec})" if rl_backoff_sec else "")
+            await asyncio.sleep(effective_cooldown)
 
     return {"ok": ok, "fail": fail, "per_slot": per_slot}
+
+
+async def _process_dedup(job: dict) -> dict:
+    payload = job["payload_obj"]
+    tenant = job["tenant"]
+    threshold = float(payload.get("threshold") or 0.75)
+    dry_run = bool(payload.get("dry_run"))
+
+    posts = db.list_posts_for_dedup(tenant)
+    clusters = dedup_lib.find_duplicate_clusters(posts, threshold=threshold)
+    dup_ids = [pid for c in clusters for pid in c.duplicate_ids]
+    marked = 0
+    if not dry_run:
+        for pid in dup_ids:
+            db.update_post_status(pid, "noindex")
+            marked += 1
+    log.info("dedup tenant=%s clusters=%d dup=%d marked=%d dry=%s",
+             tenant, len(clusters), len(dup_ids), marked, dry_run)
+    return {
+        "total_posts": len(posts),
+        "clusters": len(clusters),
+        "duplicates_found": len(dup_ids),
+        "marked_noindex": marked,
+        "dry_run": dry_run,
+    }
+
+
+async def _process_prune(job: dict) -> dict:
+    payload = job["payload_obj"]
+    tenant = job["tenant"]
+    min_chars = int(payload.get("min_body_chars") or 700)
+    stale_days = int(payload.get("stale_noindex_days") or 90)
+    dry_run = bool(payload.get("dry_run"))
+
+    posts = db.list_posts_for_dedup(tenant, include_noindex=True)
+    now = time.time()
+
+    def age_days(ts: str | None) -> float:
+        if not ts:
+            return 0.0
+        try:
+            from datetime import datetime
+            t = datetime.fromisoformat(ts.replace(" ", "T") + ("" if "T" in ts else "+00:00"))
+            return (now - t.timestamp()) / 86400.0
+        except Exception:
+            return 0.0
+
+    thin = stale = 0
+    for p in posts:
+        if p["status"] == "published":
+            if len(dedup_lib.normalize(p["body_markdown"])) < min_chars:
+                if not dry_run:
+                    db.update_post_status(p["id"], "noindex")
+                thin += 1
+        elif p["status"] == "noindex":
+            if age_days(p.get("generated_at")) >= stale_days:
+                if not dry_run:
+                    db.update_post_status(p["id"], "deleted")
+                stale += 1
+    log.info("prune tenant=%s thin=%d stale=%d dry=%s", tenant, thin, stale, dry_run)
+    return {"total_posts": len(posts), "thin_noindexed": thin,
+            "stale_deleted": stale, "dry_run": dry_run}
+
+
+async def _process_indexing(job: dict) -> dict:
+    payload = job["payload_obj"]
+    tenant = job["tenant"]
+    sa_json = db.get_setting("google_sa_json")
+    if not indexing_lib.is_configured(sa_json):
+        msg = "Google 서비스계정 키 미설정. 설정에서 키를 등록하세요."
+        log.warning("indexing tenant=%s: %s", tenant, msg)
+        return {"configured": False, "total": 0, "submitted": 0,
+                "failed": 0, "skipped_quota": 0, "message": msg}
+
+    template = db.get_setting("indexing_url_template") or "https://{domain}/community/{slug}"
+    notify_type = payload.get("type") or "URL_UPDATED"
+    max_quota = int(payload.get("max") or 200)
+
+    posts = db.list_posts(tenant, status="published", limit=100000)
+    post_ids = payload.get("post_ids")
+    if post_ids:
+        idset = set(post_ids)
+        posts = [p for p in posts if p["id"] in idset]
+    total = len(posts)
+    targets = posts[:max_quota]
+    skipped = total - len(targets)
+
+    try:
+        token = indexing_lib.get_access_token(indexing_lib.parse_service_account(sa_json))
+    except Exception as exc:  # noqa: BLE001
+        return {"configured": True, "total": total, "submitted": 0,
+                "failed": len(targets), "skipped_quota": skipped,
+                "message": f"토큰 발급 실패: {exc}"}
+
+    submitted = failed = 0
+    for p in targets:
+        url = indexing_lib.build_post_url(template, tenant, p["slug"])
+        r = indexing_lib.submit_url(token, url, notify_type)
+        if r.get("ok"):
+            submitted += 1
+        else:
+            failed += 1
+        await asyncio.sleep(0.12)
+    log.info("indexing tenant=%s submitted=%d failed=%d skipped=%d",
+             tenant, submitted, failed, skipped)
+    return {"configured": True, "total": total, "submitted": submitted,
+            "failed": failed, "skipped_quota": skipped}
 
 
 async def _main() -> int:
@@ -193,6 +314,18 @@ async def _main() -> int:
         try:
             if job["kind"] == "generate":
                 result = await _process_generate(job)
+                db.complete_job(job["id"], ok=True, result=result)
+                log.info("job %s done: %s", job["id"], result)
+            elif job["kind"] == "dedup":
+                result = await _process_dedup(job)
+                db.complete_job(job["id"], ok=True, result=result)
+                log.info("job %s done: %s", job["id"], result)
+            elif job["kind"] == "prune":
+                result = await _process_prune(job)
+                db.complete_job(job["id"], ok=True, result=result)
+                log.info("job %s done: %s", job["id"], result)
+            elif job["kind"] == "indexing":
+                result = await _process_indexing(job)
                 db.complete_job(job["id"], ok=True, result=result)
                 log.info("job %s done: %s", job["id"], result)
             else:

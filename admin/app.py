@@ -218,6 +218,8 @@ def tenant_detail(
         "slot_template": slot_template,
         "providers": ["claude", "codex"],
         "preset_options": list(presets.PRESETS.keys()),
+        "indexing_has_key": bool(db.get_setting("google_sa_json")),
+        "indexing_url_template": db.get_setting("indexing_url_template") or "https://{domain}/community/{slug}",
     })
 
 
@@ -341,6 +343,59 @@ def enqueue_generate(
         },
     )
     return RedirectResponse(f"/jobs?focus={job_id}", status_code=303)
+
+
+@app.post("/t/{domain}/dedup")
+def enqueue_dedup(request: Request, domain: str,
+                  threshold: float = Form(0.75), dry_run: bool = Form(False)):
+    _check_auth(request)
+    if not db.get_tenant(domain):
+        raise HTTPException(404, "unknown domain")
+    job_id = db.enqueue_job(tenant=domain, kind="dedup",
+                            payload={"threshold": threshold, "dry_run": dry_run})
+    return RedirectResponse(f"/jobs?focus={job_id}", status_code=303)
+
+
+@app.post("/t/{domain}/prune")
+def enqueue_prune(request: Request, domain: str,
+                  min_body_chars: int = Form(700),
+                  stale_noindex_days: int = Form(90), dry_run: bool = Form(False)):
+    _check_auth(request)
+    if not db.get_tenant(domain):
+        raise HTTPException(404, "unknown domain")
+    job_id = db.enqueue_job(tenant=domain, kind="prune",
+                            payload={"min_body_chars": min_body_chars,
+                                     "stale_noindex_days": stale_noindex_days,
+                                     "dry_run": dry_run})
+    return RedirectResponse(f"/jobs?focus={job_id}", status_code=303)
+
+
+@app.post("/t/{domain}/indexing")
+def enqueue_indexing(request: Request, domain: str, max: int = Form(200)):
+    _check_auth(request)
+    if not db.get_tenant(domain):
+        raise HTTPException(404, "unknown domain")
+    job_id = db.enqueue_job(tenant=domain, kind="indexing",
+                            payload={"max": max, "type": "URL_UPDATED"})
+    return RedirectResponse(f"/jobs?focus={job_id}", status_code=303)
+
+
+# ---------- 전역 색인(Indexing) 설정 ----------
+
+@app.post("/settings/indexing")
+def save_indexing_settings(request: Request,
+                           sa_json: str = Form(""),
+                           url_template: str = Form("")):
+    _check_auth(request)
+    from runtime import indexing as _idx
+    trimmed = (sa_json or "").strip()
+    if trimmed and not _idx.is_configured(trimmed):
+        raise HTTPException(400, "서비스계정 JSON 형식 오류(client_email/private_key 필요)")
+    if trimmed:
+        db.set_setting("google_sa_json", trimmed)
+    if (url_template or "").strip():
+        db.set_setting("indexing_url_template", url_template.strip())
+    return RedirectResponse(request.headers.get("referer", "/"), status_code=303)
 
 
 # ---------- Posts ----------

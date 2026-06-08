@@ -33,13 +33,13 @@ export interface DedupOptions {
   k?: number;
   /** MinHash permutation 수 = bands * rows. 기본 64 */
   numPerm?: number;
-  /** LSH 밴드 수. 기본 8 (rows = numPerm/bands = 8 → 임계 ≈ 0.76) */
+  /** LSH 밴드 수. 기본 16 (rows = numPerm/bands = 4 → 임계 ≈ 0.5, 재현율 확보) */
   bands?: number;
   /** 정규화 후 최소 길이. 미만이면 검출 제외. 기본 200 */
   minLen?: number;
 }
 
-const DEFAULTS = { threshold: 0.75, k: 9, numPerm: 64, bands: 8, minLen: 200 };
+const DEFAULTS = { threshold: 0.75, k: 9, numPerm: 64, bands: 16, minLen: 200 };
 const UINT32 = 0x100000000;
 
 /** 마크다운/기호 제거 후 한글·영숫자만 남긴 정규화 텍스트. */
