@@ -1,0 +1,46 @@
+/* 양산 커뮤니티 기본 스타일. 타깃 사이트 디자인에 맞게 자유롭게 교체하세요.
+   design-templates.tsx 가 --accent 변수를 셋업하므로 색상은 그걸 따릅니다. */
+
+.community-list { max-width: 880px; margin: 0 auto; padding: 40px 20px; }
+.community-list h1 { font-size: 28px; font-weight: 800; margin-bottom: 24px; }
+.community-list .empty { color: #888; }
+.post-grid { list-style: none; padding: 0; display: grid; gap: 16px; }
+.post-card a { display: block; padding: 18px 20px; border: 1px solid #e7e5e4; border-radius: 14px; text-decoration: none; color: inherit; transition: box-shadow .15s; }
+.post-card a:hover { box-shadow: 0 6px 20px rgba(0,0,0,.06); }
+.post-card h2 { font-size: 18px; font-weight: 700; margin: 0 0 6px; }
+.post-card p { color: #666; font-size: 14px; margin: 0 0 8px; }
+.post-card time { font-size: 12px; color: #aaa; }
+
+.community-post { max-width: 860px; margin: 0 auto; border-radius: 18px; overflow: hidden; border: 1px solid #e7e5e4; }
+.post-top-cta { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #fff; padding: 18px 28px; font-weight: 600; }
+.post-top-cta .cta-button { background: #ffe64d; color: #18181b; padding: 8px 16px; border-radius: 10px; text-decoration: none; font-weight: 800; white-space: nowrap; }
+.post-body { padding: 36px 44px 48px; line-height: 1.8; font-size: 17px; color: #242424; }
+.post-title { font-size: 32px; font-weight: 900; line-height: 1.35; margin: 0 0 28px; }
+.post-body h2 { font-size: 25px; font-weight: 800; margin: 48px 0 16px; padding-bottom: 10px; border-bottom: 3px solid var(--accent); }
+.post-body h2.references-title { font-size: 19px; color: #52525b; border-bottom-width: 1px; }
+.post-body h3 { font-size: 20px; margin: 30px 0 12px; }
+.post-body p { margin: 22px 0; }
+.post-body a { color: var(--accent); text-decoration: underline; word-break: break-all; }
+.post-body blockquote { margin: 28px 0; padding: 16px 20px; border-left: 5px solid var(--accent); background: #fafafa; border-radius: 0 12px 12px 0; color: #444; }
+.post-body ul, .post-body ol { padding-left: 24px; margin: 22px 0; }
+.post-body li { margin: 8px 0; }
+.post-body sup.cite { color: var(--accent); font-weight: 700; font-size: 11px; margin-left: 1px; }
+.post-body .references-title ~ ol { font-size: 13px; color: #71717a; }
+
+.md-table { margin: 28px 0; overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 12px; }
+.md-table table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.md-table th, .md-table td { border-top: 1px solid #eee; border-left: 1px solid #f1f1f1; padding: 11px 13px; text-align: left; }
+.md-table th { background: #faf9ff; font-weight: 800; }
+.md-table tr:nth-child(even) td { background: #fcfcfd; }
+
+.post-image img { width: 100%; border-radius: 14px; }
+.image-slot { display: flex; align-items: center; justify-content: center; min-height: 120px; border: 1px dashed #d4d4d8; background: #fafafa; border-radius: 14px; color: #a1a1aa; font-size: 13px; margin: 28px 0; }
+.internal-link a { font-weight: 700; }
+
+.post-bottom-cta { padding: 28px 44px 36px; text-align: center; }
+.post-bottom-cta .cta-button { display: inline-block; margin-top: 12px; background: var(--accent); color: #fff; padding: 12px 22px; border-radius: 12px; text-decoration: none; font-weight: 800; }
+
+@media (max-width: 720px) {
+  .post-body { padding: 24px; font-size: 15px; }
+  .post-title { font-size: 25px; }
+}

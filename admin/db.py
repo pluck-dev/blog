@@ -346,6 +346,17 @@ def get_post(post_id: str) -> dict | None:
     return row_to_dict(row)
 
 
+def get_post_by_slug(tenant: str, slug: str, *, status: str | None = None) -> dict | None:
+    sql = "SELECT * FROM posts WHERE tenant=? AND slug=?"
+    args: list = [tenant, slug]
+    if status:
+        sql += " AND status=?"
+        args.append(status)
+    with connect() as con:
+        row = con.execute(sql, args).fetchone()
+    return row_to_dict(row)
+
+
 def insert_post(*, tenant: str, slot_id: str | None, slug: str, title: str,
                 body_markdown: str, meta_description: str | None = None,
                 provider: str | None = None, model: str | None = None,

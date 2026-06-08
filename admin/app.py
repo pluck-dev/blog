@@ -28,7 +28,8 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -46,6 +47,16 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.cache = None  # Python 3.14 LRUCache 호환성 우회
 templates.env.auto_reload = True
 app = FastAPI(title="Programmatic SEO Admin")
+
+# 공개 콘텐츠 API(Pull)용 CORS — 테넌트 사이트가 브라우저에서 직접 fetch 가능하게.
+# 운영에서 좁히려면 PUBLIC_API_ORIGINS(쉼표구분)로 제한.
+_origins = os.environ.get("PUBLIC_API_ORIGINS", "*").strip()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"] if _origins == "*" else [o.strip() for o in _origins.split(",") if o.strip()],
+    allow_methods=["GET", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 # 정적 파일 (없어도 무관)
 STATIC_DIR.mkdir(exist_ok=True)
@@ -412,3 +423,77 @@ def api_complete_job(job_id: str, body: dict, token: str = ""):
         error=body.get("error"),
     )
     return {"ok": True}
+
+
+# ---------- 공개 콘텐츠 API (Pull) ----------
+# 테넌트 사이트(예: academy.drivingplus.me /community)가 발행글을 가져가는 읽기 전용 API.
+# 인증 없음(공개 콘텐츠), 발행(published) 상태만 노출.
+
+def _tenant_design_default(domain: str) -> str:
+    """테넌트 기본 디자인 템플릿(컬럼 없으면 editorial)."""
+    t = db.get_tenant(domain)
+    if t and isinstance(t, dict):
+        v = t.get("design_template_id")
+        if isinstance(v, str) and v:
+            return v
+    return "editorial"
+
+
+@app.get("/api/v1/{domain}/posts")
+def api_public_posts(domain: str, limit: int = 50, offset: int = 0):
+    """발행글 목록(본문 제외). 목록/사이트맵용."""
+    if not db.get_tenant(domain):
+        raise HTTPException(404, "unknown domain")
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    rows = db.list_posts(domain, status="published", limit=limit + offset)
+    page = rows[offset:offset + limit]
+    default_design = _tenant_design_default(domain)
+    items = [{
+        "slug": r["slug"],
+        "title": r["title"],
+        "meta_description": r.get("meta_description"),
+        "design_template_id": r.get("design_template_id") or default_design,
+        "generated_at": r.get("generated_at"),
+    } for r in page]
+    return JSONResponse({"domain": domain, "count": len(items), "limit": limit, "offset": offset, "items": items})
+
+
+@app.get("/api/v1/{domain}/posts/{slug}")
+def api_public_post(domain: str, slug: str):
+    """발행글 상세(본문 마크다운 포함)."""
+    if not db.get_tenant(domain):
+        raise HTTPException(404, "unknown domain")
+    post = db.get_post_by_slug(domain, slug, status="published")
+    if not post:
+        raise HTTPException(404, "post not found")
+    return JSONResponse({
+        "domain": domain,
+        "slug": post["slug"],
+        "title": post["title"],
+        "meta_description": post.get("meta_description"),
+        "body_markdown": post["body_markdown"],
+        "design_template_id": post.get("design_template_id") or _tenant_design_default(domain),
+        "generated_at": post.get("generated_at"),
+    })
+
+
+@app.get("/api/v1/{domain}/sitemap.xml")
+def api_public_sitemap(domain: str, base_url: str = ""):
+    """발행글 사이트맵. base_url 미지정 시 https://{domain} 사용."""
+    if not db.get_tenant(domain):
+        raise HTTPException(404, "unknown domain")
+    base = (base_url or f"https://{domain}").rstrip("/")
+    rows = db.list_posts(domain, status="published", limit=50000)
+    from xml.sax.saxutils import escape as _esc
+    urls = "".join(
+        f"<url><loc>{_esc(base)}/community/{_esc(r['slug'])}</loc>"
+        f"<lastmod>{_esc((r.get('generated_at') or '')[:10])}</lastmod></url>"
+        for r in rows
+    )
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        f"{urls}</urlset>"
+    )
+    return Response(content=xml, media_type="application/xml")
