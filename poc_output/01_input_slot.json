@@ -1,0 +1,33 @@
+{
+  "_comment": "시드 매트릭스 04_seed_matrix_example.csv 에서 골든 슬롯 1개 선택 (T01 템플릿 + 검증된 우선순위)",
+  "slot_id": "T01_poc_suwon_office_shuttle",
+  "template_id": "T01",
+  "primary_keyword": "수원운전면허학원",
+  "secondary_keywords": [
+    "수원자동차학원",
+    "수원 운전학원 추천",
+    "수원 직장인 운전면허",
+    "수원 셔틀 운전학원",
+    "수원 야간반 운전면허"
+  ],
+  "region": "수원",
+  "intent": "비교추천",
+  "persona": "직장인",
+  "modifier_1": "셔틀편리",
+  "modifier_2": "야간반",
+  "entity_id": null,
+  "estimated_search_volume": 2400,
+  "competition_kd": 42,
+  "priority_score": 78.5,
+  "status": "in_progress",
+  "target_publish_date": "2026-05-29",
+  "assigned_to": "poc-worker",
+  "internal_link_targets": [
+    "T07_suwon_guide_hub",
+    "T03_license_cost_guide",
+    "T05_cost_save_for_office_workers"
+  ],
+  "title_pattern_seed": "수원운전면허학원 BEST 5: 직장인 추천: 셔틀편리",
+  "seo_objective": "수원 지역 직장인 키워드 클러스터 흡수 + T07 허브로 PageRank 전달",
+  "notes": "PoC용 슬롯. 실제 발행 전 academy_data 검증 필요."
+}

@@ -1,0 +1,366 @@
+import { EventEmitter } from "events";
+import type { Provider, JobProgressEvent, GeneratePayload, DedupPayload, DedupResult, JobLogEntry } from "@shared/types";
+import * as db from "./db";
+import { renderPrompt, type SlotForPrompt } from "./prompts";
+import { runLlm } from "./llm";
+import { qualitySummary, retryPrompt, validatePost, type QualityReport } from "./quality";
+import { collectWebFacts, findUnsupportedAcademyNames } from "./web_research";
+import { findDuplicateClusters } from "./dedup";
+
+const POLL_INTERVAL_MS = 3000;
+
+type GenerateResult = {
+  ok: number;
+  fail: number;
+  cancelled?: boolean;
+  per_slot: Array<{ slot_id: string; ok: boolean; error?: string; duration_sec?: number; chars?: number; model?: string }>;
+  logs: JobLogEntry[];
+};
+
+export class Worker extends EventEmitter {
+  private stopped = false;
+  private loop: Promise<void> | null = null;
+
+  start(): void {
+    if (this.loop) return;
+    this.stopped = false;
+    this.loop = this.run();
+  }
+
+  async stop(): Promise<void> {
+    this.stopped = true;
+    await this.loop;
+    this.loop = null;
+  }
+
+  private async run(): Promise<void> {
+    while (!this.stopped) {
+      let job;
+      try { job = db.claimNextJob(); } catch (err) {
+        console.error("[worker] claim failed", err);
+        await sleep(5000);
+        continue;
+      }
+      if (!job) { await sleep(POLL_INTERVAL_MS); continue; }
+
+      try {
+        if (job.kind === "generate") {
+          const result = await this.processGenerate(job.id, job.tenant, job.payload_obj as unknown as GeneratePayload);
+          if (result.cancelled) {
+            db.completeJob(job.id, { ok: false, result, error: "cancelled by user" });
+            this.emitProgress({
+              job_id: job.id, tenant: job.tenant, phase: "failed",
+              message: "cancelled by user",
+              done: result.ok + result.fail, total: result.ok + result.fail,
+              ok: result.ok, fail: result.fail, error: "cancelled by user",
+            });
+          } else if (result.ok === 0 && result.fail > 0) {
+            db.completeJob(job.id, { ok: false, result, error: "all slots failed" });
+            this.emitProgress({
+              job_id: job.id, tenant: job.tenant, phase: "failed",
+              message: "all slots failed",
+              done: result.fail, total: result.fail,
+              ok: result.ok, fail: result.fail, error: "all slots failed",
+            });
+          } else {
+            db.completeJob(job.id, { ok: true, result });
+            this.emitProgress({
+              job_id: job.id, tenant: job.tenant, phase: "complete",
+              done: result.ok + result.fail, total: result.ok + result.fail,
+              ok: result.ok, fail: result.fail,
+            });
+          }
+        } else if (job.kind === "dedup") {
+          const result = await this.processDedup(job.id, job.tenant, job.payload_obj as unknown as DedupPayload);
+          db.completeJob(job.id, { ok: true, result: result as unknown as Record<string, unknown> });
+          this.emitProgress({
+            job_id: job.id, tenant: job.tenant, phase: "complete",
+            done: result.clusters, total: result.clusters,
+            ok: result.marked_noindex, fail: 0,
+            message: result.dry_run
+              ? `중복 ${result.duplicates_found}건 발견(미리보기, 표시 안 함)`
+              : `중복 ${result.duplicates_found}건 → noindex ${result.marked_noindex}건 처리`,
+          });
+        } else {
+          db.completeJob(job.id, { ok: false, error: `unsupported kind: ${job.kind}` });
+        }
+      } catch (err) {
+        const msg = (err as Error).message ?? String(err);
+        db.completeJob(job.id, { ok: false, error: msg });
+        this.emitProgress({
+          job_id: job.id, tenant: job.tenant, phase: "failed",
+          done: 0, total: 0, ok: 0, fail: 0, error: msg,
+        });
+      }
+    }
+  }
+
+  private async processGenerate(jobId: string, tenant: string, payload: GeneratePayload): Promise<GenerateResult> {
+    const provider: Provider = payload.provider ?? "claude";
+    const model = (payload.model ?? "").trim();
+    const timeout_sec = payload.timeout_sec ?? 600;
+    const cooldown_sec = payload.cooldown_sec ?? 60;
+    const slot_ids = payload.slot_ids ?? [];
+    const tenantMeta = db.getTenant(tenant);
+    const designTemplateId = payload.design_template_id ?? tenantMeta?.design_template_id ?? "editorial";
+    const brandName = tenantMeta?.display_name?.trim() || "운전면허플러스";
+    const useWebResearch = payload.use_web_research !== false;
+
+    let ok = 0;
+    let fail = 0;
+    const logs: JobLogEntry[] = [];
+    const per_slot: Array<{ slot_id: string; ok: boolean; error?: string; duration_sec?: number; chars?: number; model?: string }> = [];
+    const addLog = (level: JobLogEntry["level"], message: string, slot_id?: string) => {
+      logs.push({ at: new Date().toISOString(), level, message, slot_id });
+    };
+    const cancelledResult = (message: string): GenerateResult => {
+      addLog("warning", message);
+      return { ok, fail, cancelled: true, per_slot, logs };
+    };
+
+    addLog("info", `작업 시작: 후보 ${slot_ids.length}개, provider=${provider}${model ? `, model=${model}` : ""}, design=${designTemplateId}, web=${useWebResearch ? "on" : "off"}`);
+    this.emitProgress({
+      job_id: jobId, tenant, phase: "start", done: 0, total: slot_ids.length, ok: 0, fail: 0,
+      message: `start ${slot_ids.length} slots`,
+    });
+
+    for (let i = 0; i < slot_ids.length; i++) {
+      if (this.stopped) return cancelledResult("워커가 중지되어 작업을 멈췄습니다.");
+      if (db.isJobCancelRequested(jobId)) return cancelledResult("사용자가 작업 중지를 요청했습니다.");
+      const sid = slot_ids[i];
+      const slot = db.getSlot(sid);
+      if (!slot) {
+        fail += 1;
+        addLog("error", "글 후보를 찾을 수 없습니다.", sid);
+        per_slot.push({ slot_id: sid, ok: false, error: "not found" });
+        this.emitProgress({
+          job_id: jobId, tenant, phase: "slot_fail", slot_id: sid,
+          done: i + 1, total: slot_ids.length, ok, fail, error: "not found",
+        });
+        continue;
+      }
+      if (slot.tenant !== tenant) {
+        fail += 1;
+        addLog("error", "후보의 도메인이 현재 작업 도메인과 다릅니다.", sid);
+        per_slot.push({ slot_id: sid, ok: false, error: "tenant mismatch" });
+        continue;
+      }
+
+      let webFacts = "";
+      let trustedWebFacts = "";
+      if (useWebResearch) {
+        try {
+          addLog("info", "웹 자료 수집 중", sid);
+          const research = await collectWebFacts(slot as SlotForPrompt);
+          webFacts = research.factsText;
+          trustedWebFacts = research.trustedFactsText;
+          const trustedCount = research.sources.filter((source) => source.trusted).length;
+          addLog("success", `웹 자료 ${research.sources.length}개 수집, 검증용 ${trustedCount}개: ${research.query}`, sid);
+        } catch (err) {
+          addLog("warning", `웹 자료 수집 실패: ${(err as Error).message}`, sid);
+        }
+      }
+
+      const mergedBrief = [
+        tenantMeta?.content_brief?.trim(),
+        webFacts ? `웹검색 수집 자료 (각 항목의 [번호]를 본문 인용과 참고자료 섹션에 사용):\n${webFacts}` : "",
+      ].filter(Boolean).join("\n\n");
+
+      const prompt = renderPrompt({
+        ...(slot as SlotForPrompt),
+        design_template_id: designTemplateId,
+        custom_design_templates: tenantMeta?.custom_design_templates ?? null,
+        content_brief: mergedBrief,
+        brand_name: brandName,
+      });
+      addLog("info", `글 작성 시작: ${slot.primary_keyword}`, sid);
+      this.emitProgress({
+        job_id: jobId, tenant, phase: "slot_start", slot_id: sid,
+        done: i, total: slot_ids.length, ok, fail,
+        message: `slot ${i + 1}/${slot_ids.length}`,
+      });
+      db.updateSlotStatus(sid, "in_progress");
+
+      let result = await runLlm(prompt, { provider, model, timeout_sec });
+      let report: QualityReport | null = null;
+      const maxAttempts = Number(process.env.SEO_QUALITY_MAX_ATTEMPTS ?? "2");
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (!result.ok || !result.summary.trim()) {
+          if (attempt < maxAttempts) {
+            result = await runLlm(prompt, { provider, model, timeout_sec });
+            continue;
+          }
+          break;
+        }
+
+        report = validatePost(result.summary, brandName, { requireSources: Boolean(webFacts) });
+        const factualSourceText = [tenantMeta?.content_brief ?? "", trustedWebFacts].filter(Boolean).join("\n\n");
+        if (webFacts || tenantMeta?.content_brief) {
+          const unsupported = findUnsupportedAcademyNames(result.summary, factualSourceText);
+          if (unsupported.length > 0) {
+            report = {
+              ...report,
+              ok: false,
+              issues: [
+                ...report.issues,
+                `unsupported academy names not found in web sources: ${unsupported.join(", ")}`,
+              ],
+            };
+          }
+        }
+        if (report.ok) {
+          console.info(`[worker] quality OK slot=${sid} attempt=${attempt}/${maxAttempts}: ${qualitySummary(report)}`);
+          break;
+        }
+
+        console.warn(`[worker] quality FAIL slot=${sid} attempt=${attempt}/${maxAttempts}: ${qualitySummary(report)}`);
+        if (attempt < maxAttempts) {
+          result = await runLlm(retryPrompt(prompt, report, brandName, { requireSources: Boolean(webFacts) }), { provider, model, timeout_sec });
+        }
+      }
+
+      if (!result.ok || !result.summary.trim()) {
+        const err = result.error || "empty summary";
+        db.updateSlotStatus(sid, "failed", err);
+        fail += 1;
+        addLog("error", `글 작성 실패: ${err}`, sid);
+        per_slot.push({ slot_id: sid, ok: false, error: err, duration_sec: result.duration_sec });
+        this.emitProgress({
+          job_id: jobId, tenant, phase: "slot_fail", slot_id: sid,
+          done: i + 1, total: slot_ids.length, ok, fail, error: err,
+          duration_sec: result.duration_sec,
+        });
+      } else if (report && !report.ok) {
+        const err = `quality gate failed: ${qualitySummary(report)}`;
+        db.updateSlotStatus(sid, "failed", err);
+        fail += 1;
+        addLog("error", `품질 검사 실패: ${qualitySummary(report)}`, sid);
+        per_slot.push({ slot_id: sid, ok: false, error: err, duration_sec: result.duration_sec, chars: result.summary.length });
+        this.emitProgress({
+          job_id: jobId, tenant, phase: "slot_fail", slot_id: sid,
+          done: i + 1, total: slot_ids.length, ok, fail, error: err,
+          duration_sec: result.duration_sec,
+        });
+      } else {
+        const title = extractTitle(result.summary, slot.primary_keyword);
+        db.insertPost({
+          tenant, slot_id: sid, slug: sid, title,
+          body_markdown: result.summary,
+          design_template_id: designTemplateId,
+          provider: result.provider, model: result.model,
+          session_id: result.session_id, cost_usd: result.cost_usd,
+          duration_sec: result.duration_sec,
+          input_tokens: result.input_tokens,
+          output_tokens: result.output_tokens,
+        });
+        db.updateSlotStatus(sid, "published");
+        ok += 1;
+        per_slot.push({
+          slot_id: sid, ok: true, duration_sec: result.duration_sec,
+          chars: result.summary.length, model: result.model,
+        });
+        this.emitProgress({
+          job_id: jobId, tenant, phase: "slot_done", slot_id: sid,
+          done: i + 1, total: slot_ids.length, ok, fail,
+          duration_sec: result.duration_sec,
+          message: `${result.summary.length} chars`,
+        });
+        addLog("success", `완성: ${result.summary.length.toLocaleString()}자, ${result.duration_sec.toFixed(1)}초`, sid);
+      }
+
+      if (i < slot_ids.length - 1 && cooldown_sec > 0 && !this.stopped) {
+        addLog("info", `다음 글까지 ${cooldown_sec}초 대기`, sid);
+        this.emitProgress({
+          job_id: jobId, tenant, phase: "cooldown", slot_id: sid,
+          done: i + 1, total: slot_ids.length, ok, fail,
+          message: `cooldown ${cooldown_sec}s`,
+        });
+        const completed = await sleepInterruptible(cooldown_sec * 1000, () =>
+          this.stopped || db.isJobCancelRequested(jobId),
+        );
+        if (!completed) return cancelledResult("대기 중 사용자 중지 요청을 받아 작업을 멈췄습니다.");
+      }
+    }
+
+    addLog("success", `작업 완료: 성공 ${ok}개, 실패 ${fail}개`);
+    return { ok, fail, per_slot, logs };
+  }
+
+  private async processDedup(jobId: string, tenant: string, payload: DedupPayload): Promise<DedupResult> {
+    const threshold = payload.threshold ?? 0.75;
+    const dryRun = payload.dry_run === true;
+
+    const posts = db.listPostsForDedup(tenant);
+    this.emitProgress({
+      job_id: jobId, tenant, phase: "dedup_scan",
+      done: 0, total: posts.length, ok: 0, fail: 0,
+      message: `발행 글 ${posts.length}건 중복 검사 시작 (임계 ${threshold})`,
+    });
+
+    const clusters = findDuplicateClusters(
+      posts.map((p) => ({
+        id: p.id,
+        body_markdown: p.body_markdown,
+        priority_score: p.priority_score,
+        generated_at: p.generated_at,
+      })),
+      { threshold },
+    );
+
+    const duplicateIds = clusters.flatMap((c) => c.duplicate_ids);
+    let marked = 0;
+    if (!dryRun) {
+      for (const id of duplicateIds) {
+        db.updatePostStatus(id, "noindex");
+        marked += 1;
+        if (marked % 10 === 0 || marked === duplicateIds.length) {
+          this.emitProgress({
+            job_id: jobId, tenant, phase: "dedup_mark",
+            done: marked, total: duplicateIds.length, ok: marked, fail: 0,
+            message: `중복 글 noindex 처리 ${marked}/${duplicateIds.length}`,
+          });
+        }
+      }
+    }
+
+    return {
+      total_posts: posts.length,
+      clusters: clusters.length,
+      duplicates_found: duplicateIds.length,
+      marked_noindex: marked,
+      dry_run: dryRun,
+      details: clusters,
+    };
+  }
+
+  private emitProgress(ev: JobProgressEvent): void {
+    this.emit("progress", ev);
+  }
+}
+
+function extractTitle(markdown: string, fallback: string): string {
+  for (const line of markdown.split("\n")) {
+    const s = line.trim();
+    if (s.startsWith("# ")) return s.slice(2).trim() || fallback;
+  }
+  return fallback;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function sleepInterruptible(ms: number, shouldStop: () => boolean): Promise<boolean> {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (shouldStop()) return false;
+    await sleep(Math.min(1000, end - Date.now()));
+  }
+  return !shouldStop();
+}
+
+let _worker: Worker | null = null;
+export function getWorker(): Worker {
+  if (!_worker) _worker = new Worker();
+  return _worker;
+}

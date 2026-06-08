@@ -1,0 +1,36 @@
+appId: dev.pluck.seo-desktop
+productName: SEO Desktop
+directories:
+  buildResources: resources
+  output: release
+
+files:
+  - "out/**/*"
+  - "package.json"
+  - "!node_modules/**/*"
+  - "!**/{.idea,.vscode,.gitignore,.npmrc,tsconfig*.json,electron-builder.yml,tailwind.config.ts,postcss.config.js,components.json,electron.vite.config.ts}"
+  - "!src/**/*"
+
+asarUnpack:
+  - "node_modules/better-sqlite3/**/*"
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  identity: null
+
+dmg:
+  artifactName: "${productName}-${version}-${arch}.dmg"
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications

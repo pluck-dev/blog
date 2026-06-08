@@ -1,0 +1,63 @@
+axis,value,value_en,weight,monthly_search_volume,competition_kd,aliases,notes
+region,수원,suwon,5,2400,42,수원시|수원시청|수원역,경기 남부 핵심 지역
+region,안산,ansan,5,1800,38,안산시|안산역,수원 인접 셔틀권
+region,인천,incheon,5,2600,45,인천시|인천공항|송도,서울 인접
+region,강남,gangnam,4,3200,68,강남구|강남역|논현|역삼,경쟁 강도 매우 높음
+region,부산,busan,5,2800,40,부산시|해운대|서면,영남 핵심
+region,대구,daegu,5,2100,38,대구시|동성로|수성구,영남 2위
+region,광주,gwangju,4,1500,35,광주시|광주광역시,호남 핵심
+region,대전,daejeon,4,1700,36,대전시|둔산동,중부 핵심
+region,울산,ulsan,3,900,30,울산시,영남 동부
+region,세종,sejong,3,700,28,세종시|세종특별자치시,행정도시
+region,청주,cheongju,3,800,32,청주시|충북도청,충북 핵심
+region,천안,cheonan,3,1100,34,천안시|아산,충남 핵심
+region,전주,jeonju,3,700,30,전주시|완산구,호남 동부
+region,창원,changwon,3,900,32,창원시|마산,영남 서부
+region,제주,jeju,4,1300,40,제주시|제주도|서귀포,관광 키워드 결합 가능
+region,안양,anyang,3,800,32,안양시|평촌|범계,수도권 남부
+region,성남,seongnam,3,1100,38,성남시|분당|판교,수도권 남부
+region,용인,yongin,3,900,34,용인시|동백|수지,수도권 남부
+region,화성,hwaseong,3,800,32,화성시|동탄,수도권 남부
+region,평택,pyeongtaek,3,700,30,평택시|송탄,수도권 남부
+keyword,운전면허학원,driving_academy,10,9900,55,자동차운전학원|운전전문학원|면허학원,메인 키워드
+keyword,자동차학원,car_academy,8,5400,48,자동차운전학원|운전학원,2차 키워드
+keyword,운전학원,driving_school,7,4400,45,운전교습소|운전면허교습소,동의어
+keyword,운전면허,drivers_license,9,22000,62,면허증|자동차면허,상위 카테고리
+keyword,1종보통,type1_manual,6,3600,42,1종보통면허|일종보통,면허 종류
+keyword,2종보통,type2_auto,6,5400,40,2종보통면허|이종보통|2종자동,면허 종류
+keyword,1종대형,type1_large,3,1300,35,대형면허|버스면허|트럭면허,특수
+keyword,운전면허 비용,license_cost,7,4400,38,운전면허 가격|면허 학원비,비용 인텐트
+keyword,운전면허 기간,license_duration,5,2400,32,운전면허 며칠|최단기 운전면허,기간 인텐트
+keyword,운전면허 필기시험,written_exam,8,8100,40,운전면허 학과시험|필기시험,시험 키워드
+keyword,운전면허 도로주행,road_test,7,3600,38,도로주행시험|2종 도로주행,시험 키워드
+keyword,운전면허 갱신,license_renewal,6,4400,28,면허갱신|적성검사,갱신 키워드
+keyword,국제운전면허증,intl_license,5,5400,30,국제면허증|국제면허,여행 결합
+keyword,운전연수,driving_practice,6,9900,42,초보운전연수|도로연수,연수 키워드
+keyword,도로주행 연수,road_practice,5,2900,40,도로주행 학원,세부 연수
+intent,비교추천,compare_recommend,5,,,,T01 핵심 인텐트
+intent,가이드총정리,guide_overview,5,,,,T03 핵심 인텐트
+intent,비용절약,cost_save,4,,,,T05 핵심 인텐트
+intent,후기리뷰,reviews,3,,,,T02 보조
+intent,단일소개,single_focus,4,,,,T02 핵심 인텐트
+intent,시험팁,exam_tips,4,,,,T06 핵심 인텐트
+intent,상품비교,option_compare,4,,,,T04 핵심 인텐트
+persona,직장인,office_worker,5,,,,야간·주말 슬롯 필요
+persona,대학생,university_student,5,,,,방학·할인 슬롯 필요
+persona,사회초년생,fresh_employee,4,,,,예산 민감
+persona,주부,homemaker,3,,,,평일 낮 시간
+persona,노년층,senior,3,,,,갱신·재취득
+persona,재취득자,re_acquirer,3,,,,실효 후 재시도
+persona,초보운전자,beginner_driver,4,,,,취득 직후 연수 슬롯
+persona,일반,general,5,,,,페르소나 미지정 슬롯
+modifier,2026,year_2026,3,,,,연도 추가
+modifier,최단기,fastest,4,,,,기간 단축 강조
+modifier,비용절약,cheap,4,,,,가격 강조
+modifier,친절강사,kind_instructor,3,,,,서비스 품질
+modifier,셔틀편리,shuttle_easy,4,,,,접근성
+modifier,야간반,evening,3,,,,직장인 결합
+modifier,주말반,weekend,3,,,,직장인 결합
+modifier,빠른취득,fast_acquire,4,,,,기간 강조
+modifier,합격률높은,high_pass_rate,4,,,,결과 강조
+modifier,가성비,cost_effective,4,,,,종합 가치
+modifier,편의시설,facilities,2,,,,부가
+modifier,신차보유,new_cars,2,,,,차량 품질

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}대시보드{% endblock %}
+{% block body %}
+
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">도메인 목록</h1>
+  <details class="relative">
+    <summary class="btn-primary list-none select-none">+ 새 도메인 추가</summary>
+    <form method="post" action="/tenants"
+          class="absolute right-0 mt-2 w-96 bg-white border border-slate-200 rounded-lg p-4 shadow-lg z-10 space-y-3">
+      <div>
+        <label class="label">도메인 (예: hptunermap.com)</label>
+        <input class="input" name="domain" required pattern="[a-z0-9.\-]+">
+      </div>
+      <div>
+        <label class="label">표시 이름</label>
+        <input class="input" name="display_name" required>
+      </div>
+      <div>
+        <label class="label">업종 (자유 입력 — 예: 강남 치과, 분당 헬스장, ECU 튜닝, 변호사 사무소)</label>
+        <input class="input" name="vertical" required
+               list="vertical-suggestions" autocomplete="off"
+               placeholder="업종을 한 줄로 적으세요. AI가 이걸 보고 축을 채웁니다.">
+        <datalist id="vertical-suggestions">
+          {% for v in verticals %}<option value="{{ v }}">{% endfor %}
+        </datalist>
+        <p style="font-size:0.7rem;color:#64748b;margin-top:0.25rem;">
+          알려진 키워드(driving/car-mapping/gym/academy/general)는 프리셋이 자동 적용됩니다. 그 외 업종은 빈 상태로 생성 → AI 축 자동 생성 사용.
+        </p>
+      </div>
+      <div>
+        <label class="label">테마</label>
+        <select class="input" name="theme">
+          {% for th in themes %}<option value="{{ th }}">{{ th }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="label">브랜드 컬러</label>
+          <input class="input h-10 p-1" type="color" name="brand_color" value="#0066ff">
+        </div>
+        <div>
+          <label class="label">일일 한도</label>
+          <input class="input" type="number" name="daily_limit" value="30" min="1" max="500">
+        </div>
+      </div>
+      <label class="flex items-center gap-2 text-sm">
+        <input type="checkbox" name="apply_preset" value="1" checked>
+        프리셋 이름 매칭 시 자동 적용 (모르는 업종이면 무시)
+      </label>
+      <button class="btn-primary w-full justify-center">생성</button>
+    </form>
+  </details>
+</div>
+
+{% if not tenants %}
+  <div class="bg-white rounded-lg border border-slate-200 p-12 text-center text-slate-500">
+    아직 도메인이 없습니다. "새 도메인 추가" 로 시작하세요.
+  </div>
+{% else %}
+<div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
+  <table>
+    <thead><tr>
+      <th>도메인</th><th>이름</th><th>수직</th><th>슬롯</th><th>발행</th><th>일일한도</th><th>작성일</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for t in tenants %}
+      <tr>
+        <td class="font-mono">
+          <a href="/t/{{ t.domain }}" class="text-blue-600 hover:underline">{{ t.domain }}</a>
+        </td>
+        <td>{{ t.display_name }}</td>
+        <td><span class="badge bg-slate-100 text-slate-700">{{ t.vertical }}</span></td>
+        <td>
+          {{ t.slot_count }}
+          {% if t.planned_count %}<span class="text-amber-600">({{ t.planned_count }} planned)</span>{% endif %}
+        </td>
+        <td>{{ t.published_count }}</td>
+        <td>{{ t.daily_limit }}</td>
+        <td class="text-xs text-slate-500">{{ t.created_at }}</td>
+        <td class="text-right">
+          <form method="post" action="/tenants/{{ t.domain }}/delete"
+                onsubmit="return confirm('정말 삭제? 슬롯·글 모두 삭제됩니다.')" class="inline">
+            <button class="text-red-600 hover:underline text-xs">삭제</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if recent_jobs %}
+<div class="mt-8">
+  <div class="flex items-center justify-between mb-2">
+    <h2 class="text-lg font-semibold">최근 작업</h2>
+    <a href="/jobs" class="text-sm text-blue-600 hover:underline">전체 →</a>
+  </div>
+  <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
+    <table>
+      <thead><tr><th>도메인</th><th>종류</th><th>상태</th><th>시작</th><th>완료</th></tr></thead>
+      <tbody>
+        {% for j in recent_jobs %}
+        <tr>
+          <td class="font-mono text-xs">{{ j.tenant }}</td>
+          <td>{{ j.kind }}</td>
+          <td>
+            <span class="badge
+              {% if j.status == 'done' %}bg-green-100 text-green-700
+              {% elif j.status == 'failed' %}bg-red-100 text-red-700
+              {% elif j.status == 'running' %}bg-blue-100 text-blue-700
+              {% else %}bg-slate-100 text-slate-700{% endif %}">
+              {{ j.status }}
+            </span>
+          </td>
+          <td class="text-xs">{{ j.started_at or '-' }}</td>
+          <td class="text-xs">{{ j.finished_at or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
