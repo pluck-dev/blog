@@ -61,6 +61,38 @@ def _extract_title(markdown_text: str, fallback: str) -> str:
     return fallback
 
 
+def _slugify(text: str) -> str:
+    """제목 → SEO 슬러그(한글 허용). 공백·특수문자→하이픈, 길이 제한."""
+    import re
+    t = (text or "").strip()
+    t = re.sub(r"[^\w가-힣\s-]", "", t)   # 한글/영숫자/언더스코어/공백/하이픈만
+    t = re.sub(r"[\s_]+", "-", t)
+    t = re.sub(r"-{2,}", "-", t).strip("-")
+    return t[:80] or "post"
+
+
+def _meta_description(markdown_text: str, limit: int = 155) -> str:
+    """본문 첫 일반 문단을 메타 디스크립션으로(헤딩/슬롯/표/인용 제외)."""
+    import re
+    for raw in markdown_text.splitlines():
+        s = raw.strip()
+        if not s or s.startswith("#") or s.startswith(">") or s.startswith("|"):
+            continue
+        if re.match(r"^\[(IMAGE|TABLE|INTERNAL_LINK)_SLOT", s):
+            continue
+        if s.startswith("#") or s.startswith("⭐"):
+            continue
+        # 인라인 마크다운/슬롯/출처번호 제거
+        s = re.sub(r"\[(?:IMAGE|TABLE|INTERNAL_LINK)_SLOT:[^\]]*\]", "", s)
+        s = re.sub(r"\[(\d+)\]", "", s)
+        s = re.sub(r"[*_`#]", "", s)
+        s = re.sub(r"\s+([.,!?])", r"\1", s)   # 인용 제거 후 ' .' 정리
+        s = re.sub(r"\s{2,}", " ", s).strip()
+        if len(s) >= 20:
+            return s[:limit].rstrip()
+    return ""
+
+
 def _strip_preamble(markdown_text: str) -> str:
     """LLM 이 본문 앞에 붙인 메타 코멘트(예: '파일 저장 권한이 없어...')를 제거.
     첫 '# ' H1 헤딩부터를 본문으로 간주."""
@@ -176,9 +208,22 @@ async def _process_generate(job: dict) -> dict:
             fail += 1
         else:
             title = _extract_title(result.summary, slot["primary_keyword"])
+            meta_desc = _meta_description(result.summary)
+            slug = db.unique_slug(tenant, _slugify(title), sid)
+
+            # 이미지 수집(키 있으면 원격 CDN URL 맵, 없으면 빈 dict) — 발행 콘텐츠에 저장
+            img_map: dict = {}
+            try:
+                prompt_slot = _slot_to_prompt_dict(slot)
+                img_map = images.collect_urls_for_slot(sid, result.summary, prompt_slot)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("이미지 수집 실패 slot=%s: %s", sid, exc)
+
             db.insert_post(
-                tenant=tenant, slot_id=sid, slug=sid,
+                tenant=tenant, slot_id=sid, slug=slug,
                 title=title, body_markdown=result.summary,
+                meta_description=meta_desc,
+                images=json.dumps(img_map, ensure_ascii=False) if img_map else None,
                 provider=result.provider, model=result.model,
                 session_id=result.session_id, cost_usd=result.cost_usd,
                 duration_sec=result.duration_sec,
@@ -187,20 +232,15 @@ async def _process_generate(job: dict) -> dict:
             )
             db.update_slot_status(sid, "published")
 
-            # 이미지 수집 + 운전선생 스타일 발행 HTML (best-effort — 실패해도 발행은 유효)
+            # 발행 HTML 파일(미리보기용, best-effort)
             try:
-                prompt_slot = _slot_to_prompt_dict(slot)
-                slot_meta = {"slot": prompt_slot}
-                img_map = images.collect_for_slot(sid, result.summary, prompt_slot)
+                slot_meta = {"slot": _slot_to_prompt_dict(slot)}
                 html_out = publish.render_html(result.summary, slot_meta, sid, images=img_map)
                 publish.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-                (publish.OUTPUT_DIR / f"{sid}.html").write_text(html_out, encoding="utf-8")
-                if img_map:
-                    (publish.OUTPUT_DIR / f"{sid}.images.json").write_text(
-                        json.dumps(img_map, ensure_ascii=False, indent=2), encoding="utf-8")
-                log.info("발행 HTML → %s.html (이미지 %d개)", sid, len(img_map))
+                (publish.OUTPUT_DIR / f"{slug}.html").write_text(html_out, encoding="utf-8")
+                log.info("발행: slug=%s, meta=%d자, 이미지 %d개", slug, len(meta_desc or ""), len(img_map))
             except Exception as exc:  # noqa: BLE001
-                log.warning("발행 HTML/이미지 생성 실패 slot=%s: %s", sid, exc)
+                log.warning("발행 HTML 생성 실패 slot=%s: %s", sid, exc)
 
             per_slot.append({"slot_id": sid, "ok": True,
                               "duration_sec": result.duration_sec,

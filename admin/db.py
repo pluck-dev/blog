@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS posts (
   title           TEXT NOT NULL,
   body_markdown   TEXT NOT NULL,
   meta_description TEXT,
+  images          TEXT,
   status          TEXT NOT NULL DEFAULT 'published'
                   CHECK (status IN ('published','noindex','deleted')),
   provider        TEXT,
@@ -146,6 +147,10 @@ def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with connect() as con:
         con.executescript(SCHEMA)
+        # 마이그레이션: 기존 DB 에 images 컬럼이 없으면 추가
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(posts)").fetchall()}
+        if "images" not in cols:
+            con.execute("ALTER TABLE posts ADD COLUMN images TEXT")
 
 
 @contextmanager
@@ -387,8 +392,25 @@ def get_post_by_slug(tenant: str, slug: str, *, status: str | None = None) -> di
     return row_to_dict(row)
 
 
+def unique_slug(tenant: str, base: str, slot_id: str | None) -> str:
+    """tenant 내 유일한 슬러그. 같은 slot 이 이미 쓰면 그대로, 다른 slot 이면 -2, -3 ..."""
+    base = (base or "post").strip("-") or "post"
+    with connect() as con:
+        cand = base
+        i = 2
+        while True:
+            row = con.execute(
+                "SELECT slot_id FROM posts WHERE tenant=? AND slug=?", (tenant, cand)
+            ).fetchone()
+            if row is None or row["slot_id"] == slot_id:
+                return cand
+            cand = f"{base}-{i}"
+            i += 1
+
+
 def insert_post(*, tenant: str, slot_id: str | None, slug: str, title: str,
                 body_markdown: str, meta_description: str | None = None,
+                images: str | None = None,
                 provider: str | None = None, model: str | None = None,
                 session_id: str | None = None, cost_usd: float = 0.0,
                 duration_sec: float | None = None,
@@ -397,11 +419,13 @@ def insert_post(*, tenant: str, slot_id: str | None, slug: str, title: str,
     with connect() as con:
         con.execute(
             """INSERT INTO posts (id, tenant, slot_id, slug, title, body_markdown,
-                                   meta_description, provider, model, session_id,
+                                   meta_description, images, provider, model, session_id,
                                    cost_usd, duration_sec, input_tokens, output_tokens)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(tenant, slug) DO UPDATE SET
                  body_markdown=excluded.body_markdown,
+                 meta_description=excluded.meta_description,
+                 images=excluded.images,
                  provider=excluded.provider,
                  model=excluded.model,
                  cost_usd=excluded.cost_usd,
@@ -410,7 +434,7 @@ def insert_post(*, tenant: str, slot_id: str | None, slug: str, title: str,
                  output_tokens=excluded.output_tokens,
                  generated_at=CURRENT_TIMESTAMP""",
             (post_id, tenant, slot_id, slug, title, body_markdown, meta_description,
-             provider, model, session_id, cost_usd, duration_sec,
+             images, provider, model, session_id, cost_usd, duration_sec,
              input_tokens, output_tokens),
         )
     return post_id

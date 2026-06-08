@@ -570,12 +570,17 @@ def api_public_post(domain: str, slug: str):
     post = db.get_post_by_slug(domain, slug, status="published")
     if not post:
         raise HTTPException(404, "post not found")
+    try:
+        images_map = json.loads(post.get("images") or "{}")
+    except Exception:  # noqa: BLE001
+        images_map = {}
     return JSONResponse({
         "domain": domain,
         "slug": post["slug"],
         "title": post["title"],
         "meta_description": post.get("meta_description"),
         "body_markdown": post["body_markdown"],
+        "images": images_map,
         "design_template_id": post.get("design_template_id") or _tenant_design_default(domain),
         "generated_at": post.get("generated_at"),
     })

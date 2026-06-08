@@ -194,6 +194,31 @@ def needed_kinds(markdown_text: str) -> list[str]:
 
 # ---------- 메인 ----------
 
+def collect_urls_for_slot(slot_id: str, markdown_text: str,
+                          slot_meta: dict | None = None) -> dict[str, str]:
+    """Pull 발행용 — {kind: 원격 CDN URL} 반환(다운로드 안 함).
+    외부 사이트가 그 URL을 직접 <img src> 로 쓸 수 있다. 키 없으면 빈 dict.
+    """
+    prov = _active_provider()
+    if prov is None:
+        return {}
+    provider, key = prov
+    kinds = needed_kinds(markdown_text)
+    if not kinds:
+        return {}
+    result: dict[str, str] = {}
+    for kind in kinds:
+        query = _build_query(kind, slot_meta)
+        candidates = _search(provider, key, query)
+        if not candidates:
+            continue
+        chosen = candidates[_pick_index(slot_id, kind, len(candidates))]
+        result[kind] = chosen["url"]
+        if provider == "unsplash":
+            _trigger_unsplash_download(chosen.get("download_location", ""), key)
+    return result
+
+
 def collect_for_slot(slot_id: str, markdown_text: str,
                      slot_meta: dict | None = None) -> dict[str, str]:
     """슬롯 본문의 IMAGE_SLOT 종류별로 이미지를 확보 → {kind: 상대경로} 반환.

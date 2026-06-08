@@ -36,7 +36,7 @@ export default async function CommunityPostPage({ params }: { params: Promise<{ 
 
   return (
     <DesignLayout designId={post.design_template_id} title={post.title} ctaHref="/contact">
-      <PostRenderer markdown={post.body_markdown} />
+      <PostRenderer markdown={post.body_markdown} images={post.images ?? {}} />
     </DesignLayout>
   );
 }

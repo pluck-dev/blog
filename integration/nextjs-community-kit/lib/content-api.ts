@@ -25,6 +25,8 @@ export interface PostListItem {
 
 export interface PostDetail extends PostListItem {
   body_markdown: string;
+  /** 이미지 슬롯 kind → CDN URL (키 미설정 시 빈 객체) */
+  images?: Record<string, string>;
 }
 
 function assertConfigured(): void {
