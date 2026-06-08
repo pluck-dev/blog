@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 import uuid
@@ -16,7 +17,8 @@ from typing import Any, Iterator
 
 ADMIN_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = ADMIN_DIR.parent
-DB_PATH = PROJECT_DIR / "data" / "admin.db"
+# DB 경로. 환경변수 SEO_DB_PATH 로 오버라이드 가능(도커 볼륨 등).
+DB_PATH = Path(os.environ.get("SEO_DB_PATH", str(PROJECT_DIR / "data" / "admin.db")))
 
 SCHEMA = """
 PRAGMA journal_mode = WAL;

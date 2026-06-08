@@ -28,6 +28,10 @@ seed_matrix/04_seed_matrix_full.csv
 # === 생성 산출물 ===
 output/
 
+# === 비밀/환경 ===
+.env
+*.local
+
 # === OS / 에디터 ===
 .DS_Store
 *.log
