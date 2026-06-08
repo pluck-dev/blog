@@ -6,6 +6,7 @@ import { runLlm } from "./llm";
 import { qualitySummary, retryPrompt, validatePost, type QualityReport } from "./quality";
 import { collectWebFacts, findUnsupportedAcademyNames } from "./web_research";
 import { findDuplicateClusters } from "./dedup";
+import { parseRateSignal, nextBackoffSec } from "./rate_limit";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -108,6 +109,7 @@ export class Worker extends EventEmitter {
 
     let ok = 0;
     let fail = 0;
+    let rlBackoffSec = 0; // 레이트리밋 압력에 따른 추가 대기(슬롯 간 적응 백오프)
     const logs: JobLogEntry[] = [];
     const per_slot: Array<{ slot_id: string; ok: boolean; error?: string; duration_sec?: number; chars?: number; model?: string }> = [];
     const addLog = (level: JobLogEntry["level"], message: string, slot_id?: string) => {
@@ -268,14 +270,24 @@ export class Worker extends EventEmitter {
         addLog("success", `완성: ${result.summary.length.toLocaleString()}자, ${result.duration_sec.toFixed(1)}초`, sid);
       }
 
-      if (i < slot_ids.length - 1 && cooldown_sec > 0 && !this.stopped) {
-        addLog("info", `다음 글까지 ${cooldown_sec}초 대기`, sid);
+      // 레이트리밋 신호로 적응 백오프 갱신
+      const rlSignal = parseRateSignal(result.rate_limit);
+      rlBackoffSec = nextBackoffSec(rlSignal, rlBackoffSec);
+      if (rlBackoffSec > 0) {
+        const pct = rlSignal.pressure !== null ? `${Math.round(rlSignal.pressure * 100)}%` : "?";
+        addLog("warning", `레이트리밋 압력 감지(사용률 ${pct}${rlSignal.status ? `, ${rlSignal.status}` : ""}) → 추가 대기 ${rlBackoffSec}초`, sid);
+      }
+
+      const effectiveCooldown = cooldown_sec + rlBackoffSec;
+      if (i < slot_ids.length - 1 && effectiveCooldown > 0 && !this.stopped) {
+        const label = rlBackoffSec > 0 ? `${cooldown_sec}+${rlBackoffSec}초(레이트리밋)` : `${cooldown_sec}초`;
+        addLog("info", `다음 글까지 ${label} 대기`, sid);
         this.emitProgress({
           job_id: jobId, tenant, phase: "cooldown", slot_id: sid,
           done: i + 1, total: slot_ids.length, ok, fail,
-          message: `cooldown ${cooldown_sec}s`,
+          message: `cooldown ${effectiveCooldown}s${rlBackoffSec > 0 ? " (rate-limit backoff)" : ""}`,
         });
-        const completed = await sleepInterruptible(cooldown_sec * 1000, () =>
+        const completed = await sleepInterruptible(effectiveCooldown * 1000, () =>
           this.stopped || db.isJobCancelRequested(jobId),
         );
         if (!completed) return cancelledResult("대기 중 사용자 중지 요청을 받아 작업을 멈췄습니다.");
