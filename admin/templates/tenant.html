@@ -18,7 +18,7 @@
 </div>
 
 <div class="flex border-b border-slate-200 mb-6 gap-1">
-  {% set tabs = [('overview','개요'), ('axes','축'), ('slots','슬롯'), ('posts','글'), ('settings','설정')] %}
+  {% set tabs = [('overview','개요'), ('axes','축'), ('academies','학원자료'), ('slots','슬롯'), ('posts','글'), ('settings','설정')] %}
   {% for tid, label in tabs %}
     <a href="?tab={{ tid }}"
        class="px-4 py-2 text-sm border-b-2
@@ -162,6 +162,68 @@
   </details>
 </div>
 {% endfor %}
+{% endif %}
+
+{# ---------- ACADEMIES (검증된 학원 자료) ---------- #}
+{% if tab == 'academies' %}
+<div class="bg-white rounded-lg border border-slate-200 p-4 mb-4">
+  <p class="text-sm text-slate-600 mb-1">생성 시 슬롯의 <b>지역(region)</b>과 일치하는 학원 자료가 '검증된 자료'로 주입됩니다.</p>
+  <p class="text-xs text-slate-400">자료가 있으면 → 실제 상호명·가격·셔틀로 작성 + 출처 [n] 인용 + 참고자료 자동. 없으면 → 지어내지 않고 '고르는 기준' 중심.</p>
+</div>
+
+{# 단건 추가 #}
+<form method="post" action="/t/{{ tenant.domain }}/academies/add" class="bg-white rounded-lg border border-slate-200 p-4 mb-4">
+  <h3 class="font-semibold mb-3 text-sm">학원 1곳 추가</h3>
+  <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+    <input class="input" name="region" placeholder="지역 (예: 대구)" required>
+    <input class="input" name="name" placeholder="학원명 *" required>
+    <input class="input" name="address" placeholder="주소">
+    <input class="input" name="price" placeholder="수강료 (예: 1종 65만원)">
+    <input class="input" name="shuttle" placeholder="셔틀">
+    <input class="input" name="hours" placeholder="영업시간">
+    <input class="input" name="pass_rate" placeholder="합격률">
+    <input class="input" name="phone" placeholder="전화">
+    <input class="input" name="source_name" placeholder="출처명 (예: 공식 홈페이지)">
+    <input class="input md:col-span-2" name="source_url" placeholder="출처 URL">
+    <input class="input md:col-span-3" name="review" placeholder="검증된 후기 문장(선택)">
+  </div>
+  <button class="btn-primary mt-3">추가</button>
+</form>
+
+{# JSON 일괄 #}
+<details class="bg-white rounded-lg border border-slate-200 p-4 mb-4">
+  <summary class="text-sm font-semibold cursor-pointer">JSON 일괄 업로드</summary>
+  <form method="post" action="/t/{{ tenant.domain }}/academies/bulk" class="mt-3">
+    <textarea name="json_text" rows="6" class="input w-full font-mono text-xs"
+      placeholder='[{"region":"대구","name":"OO학원","price":"65만원","source_url":"https://..."}]'></textarea>
+    <button class="btn-primary mt-2">일괄 추가</button>
+  </form>
+</details>
+
+{# 목록 #}
+{% if academies_list %}
+<div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
+  <table>
+    <thead><tr><th>지역</th><th>학원명</th><th>수강료</th><th>셔틀</th><th>합격률</th><th>출처</th><th></th></tr></thead>
+    <tbody>
+    {% for a in academies_list %}
+      <tr>
+        <td>{{ a.region or '-' }}</td>
+        <td class="font-medium">{{ a.name }}</td>
+        <td class="text-xs">{{ a.price or '-' }}</td>
+        <td class="text-xs">{{ a.shuttle or '-' }}</td>
+        <td class="text-xs">{{ a.pass_rate or '-' }}</td>
+        <td class="text-xs">{% if a.source_url %}<a href="{{ a.source_url }}" target="_blank" class="text-blue-600 hover:underline">{{ a.source_name or '링크' }}</a>{% else %}{{ a.source_name or '-' }}{% endif %}</td>
+        <td><button type="button" class="text-xs text-red-600 hover:underline"
+            onclick="if(confirm('삭제?')) fetch('/t/{{ tenant.domain }}/academies/{{ a.id }}/delete',{method:'POST'}).then(()=>location.reload())">삭제</button></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="bg-white rounded-lg border border-slate-200 p-8 text-center text-slate-500">아직 등록된 학원 자료가 없습니다.</div>
+{% endif %}
 {% endif %}
 
 {# ---------- SLOTS ---------- #}

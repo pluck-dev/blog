@@ -202,6 +202,9 @@ def tenant_detail(
         )
     if tab == "posts":
         posts_list = db.list_posts(domain, limit=100)
+    academies_list: list[dict] = []
+    if tab == "academies":
+        academies_list = db.list_academies(domain, limit=500)
 
     return templates.TemplateResponse(request, "tenant.html", {
         "tenant": t,
@@ -211,6 +214,7 @@ def tenant_detail(
         "slot_counts": slot_counts,
         "slots_list": slots_list,
         "posts_list": posts_list,
+        "academies_list": academies_list,
         "tab": tab,
         "verticals": ["driving", "car-mapping", "gym", "academy", "general"],
         "themes": ["clean", "modern", "pro"],
@@ -343,6 +347,50 @@ def enqueue_generate(
         },
     )
     return RedirectResponse(f"/jobs?focus={job_id}", status_code=303)
+
+
+@app.post("/t/{domain}/academies/add")
+def academy_add(
+    request: Request, domain: str,
+    region: str = Form(""), name: str = Form(...),
+    address: str = Form(""), price: str = Form(""), shuttle: str = Form(""),
+    hours: str = Form(""), pass_rate: str = Form(""), phone: str = Form(""),
+    review: str = Form(""), source_name: str = Form(""), source_url: str = Form(""),
+):
+    _check_auth(request)
+    if not db.get_tenant(domain):
+        raise HTTPException(404, "unknown domain")
+    db.upsert_academies(domain, [{
+        "region": region, "name": name, "address": address, "price": price,
+        "shuttle": shuttle, "hours": hours, "pass_rate": pass_rate, "phone": phone,
+        "review": review, "source_name": source_name, "source_url": source_url,
+    }])
+    return RedirectResponse(f"/t/{domain}?tab=academies", status_code=303)
+
+
+@app.post("/t/{domain}/academies/bulk")
+def academy_bulk(request: Request, domain: str, json_text: str = Form("")):
+    _check_auth(request)
+    if not db.get_tenant(domain):
+        raise HTTPException(404, "unknown domain")
+    try:
+        rows = json.loads(json_text)
+        if isinstance(rows, dict):
+            rows = rows.get("items", [])
+        if not isinstance(rows, list):
+            raise ValueError("array required")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"JSON 파싱 실패: {exc}")
+    n = db.upsert_academies(domain, rows)
+    return RedirectResponse(f"/t/{domain}?tab=academies&added={n}", status_code=303)
+
+
+@app.post("/t/{domain}/academies/{acad_id}/delete")
+def academy_delete(request: Request, domain: str, acad_id: str):
+    _check_auth(request)
+    with db.connect() as con:
+        con.execute("DELETE FROM academies WHERE id=? AND tenant=?", (acad_id, domain))
+    return RedirectResponse(f"/t/{domain}?tab=academies", status_code=303)
 
 
 @app.post("/t/{domain}/dedup")

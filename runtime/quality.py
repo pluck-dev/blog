@@ -129,12 +129,24 @@ def retry_prompt(original_prompt: str, report: QualityReport, require_sources: b
         if require_sources
         else ""
     )
+    # 분량 미달이면 '줄이지 말고 늘리라'고 강하게, 구체 목표치로 지시.
+    too_short = report.text_chars < MIN_TEXT_CHARS
+    target = max(MIN_TEXT_CHARS + 300, 1800)
+    length_rule = (
+        f"⚠️ 이전 글은 공백 제외 {report.text_chars}자로 너무 짧았습니다. "
+        f"이번에는 절대 줄이지 말고 늘려서 공백 제외 {target}자 이상으로 쓰세요. "
+        "각 H2 섹션을 2~3문단으로 충분히 풀고(구체적 예시·비교·체크 포인트 추가), "
+        "검증된 자료의 학원별 특징을 더 자세히 비교 서술하세요.\n"
+        if too_short
+        else f"본문 공백 제외 {MIN_TEXT_CHARS}~{MAX_TEXT_CHARS}자를 지키세요.\n"
+    )
     return (
         f"{original_prompt}\n\n"
         "위 조건으로 다시 작성하세요. 이전 출력은 발행 품질 기준을 통과하지 못했습니다.\n"
         f"미달 항목: {report.summary()}\n"
-        "반드시 본문 공백 제외 2,300~3,600자, H2 4개 이상, 이미지 슬롯 3개 이상, "
-        f"표 슬롯 1개 이상, 후기 인용 1개, 체크리스트 1개, {BRAND} CTA와 INTERNAL_LINK를 포함하세요.\n"
+        f"{length_rule}"
+        "H2 4개 이상, 이미지 슬롯 3개 이상, 표 슬롯 1개 이상, 후기/메모 인용 1개, "
+        f"체크리스트 1개, {BRAND} CTA와 INTERNAL_LINK를 포함하세요.\n"
         f"브랜드명은 반드시 {BRAND}만 사용하고, 경쟁사명 '운전선생'은 절대 쓰지 마세요.\n"
         f"{source_rule}"
         "마크다운 본문만 출력하세요."
