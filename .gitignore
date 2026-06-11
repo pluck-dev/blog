@@ -37,3 +37,6 @@ output/
 *.log
 .idea/
 .vscode/
+
+# Next.js
+.next/

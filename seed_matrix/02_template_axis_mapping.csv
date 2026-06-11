@@ -1,8 +1,0 @@
-template_id,template_name,description,primary_axes,secondary_axes,modifier_count,priority_weight,min_search_volume,notes
-T01,지역_BEST5,지역 학원 5곳 비교형,region|persona,modifier,2,1.0,500,운전선생 최대 양산 템플릿. region × persona × modifier(2개) = 슬롯
-T02,단일학원_집중,학원 1곳 깊게 소개,entity,region|modifier,1,0.8,300,entity는 entity_directory.csv 참조. 자체 가맹 학원만
-T03,가이드_총정리,절차/방법 친절 안내,keyword|persona,modifier,1,0.9,800,keyword가 절차성 키워드일 때 (필기시험·갱신·도로주행 등)
-T04,옵션_비교,두 옵션 비교 (1종 vs 2종 등),keyword_pair,persona,0,0.7,400,keyword_pair는 keyword 축에서 2개 묶음. 별도 정의 필요
-T05,비용_절약전략,비용 절약 BEST N,keyword|persona,modifier,1,0.95,600,modifier는 가성비/비용절약 계열만
-T06,시험_BEST5,시험 핵심 5개 정리,keyword,intent,0,0.85,1000,intent는 시험팁 고정. keyword는 필기·도로주행 계열
-T07,지역×인텐트_허브,지역+인텐트 카테고리 허브,region,intent,0,1.2,1500,허브 페이지 (양산 글 위에 위치). 사람이 직접 작성 권장

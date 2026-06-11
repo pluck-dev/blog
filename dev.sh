@@ -1,42 +1,44 @@
 #!/usr/bin/env bash
-# 로컬 개발용 — 서버 + 워커를 한 번에 띄우고, Ctrl-C 로 같이 종료.
+# 로컬 개발용 — NestJS API(+워커) + Next 관리자 동시 실행.
 #
 #   ./dev.sh
 #
-# .env 파일이 있으면 자동 로드. venv 가 없으면 안내.
+# .env 파일이 있으면 자동 로드.
 set -euo pipefail
 cd "$(dirname "$0")"
-
-if [ ! -x .venv/bin/python ]; then
-  echo "[dev] .venv 가 없습니다. 먼저:"
-  echo "    python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt"
-  exit 1
-fi
 
 if [ -f .env ]; then
   echo "[dev] .env 로드"
   set -a; . ./.env; set +a
 fi
 
-# 개발 스크립트는 깔끔한 종료를 위해 reload 기본 off (.env 에서 켜면 유지)
-export ADMIN_RELOAD="${ADMIN_RELOAD:-0}"
+if [ ! -d apps/api-nest/node_modules ]; then
+  echo "[dev] apps/api-nest 의존성 설치"
+  (cd apps/api-nest && npm install)
+fi
+if [ ! -d apps/admin-next/node_modules ]; then
+  echo "[dev] apps/admin-next 의존성 설치"
+  (cd apps/admin-next && npm install)
+fi
 
-PY=.venv/bin/python
+export ADMIN_HOST="${ADMIN_HOST:-127.0.0.1}"
+export ADMIN_PORT="${ADMIN_PORT:-8765}"
+export SEO_API_BASE_URL="${SEO_API_BASE_URL:-http://${ADMIN_HOST}:${ADMIN_PORT}}"
+export API_WORKER="${API_WORKER:-1}"
 
-echo "[dev] 서버 기동 → http://${ADMIN_HOST:-127.0.0.1}:${ADMIN_PORT:-8765}"
-$PY -m admin &
-SERVER=$!
+echo "[dev] Nest API 기동 → ${SEO_API_BASE_URL}"
+(cd apps/api-nest && npm run dev) &
+API=$!
 
-echo "[dev] 워커 기동"
-$PY -m admin.worker &
-WORKER=$!
+echo "[dev] Next 관리자 기동 → http://localhost:3001"
+(cd apps/admin-next && SEO_API_BASE_URL="$SEO_API_BASE_URL" npm run dev) &
+NEXT=$!
 
-# Ctrl-C 면 서버+워커(+자식) 같이 정리 (bash 3.2 호환 — wait -n 미사용)
 cleanup() {
   echo; echo "[dev] 종료 중..."
-  pkill -P "$SERVER" 2>/dev/null || true
-  pkill -P "$WORKER" 2>/dev/null || true
-  kill "$SERVER" "$WORKER" 2>/dev/null || true
+  pkill -P "$API" 2>/dev/null || true
+  pkill -P "$NEXT" 2>/dev/null || true
+  kill "$API" "$NEXT" 2>/dev/null || true
 }
 trap cleanup INT TERM
 

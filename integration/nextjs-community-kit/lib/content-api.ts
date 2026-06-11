@@ -1,7 +1,7 @@
 /**
  * 중앙 콘텐츠 API(Pull) fetch 레이어.
  *
- * 양산 관리자(admin FastAPI)가 제공하는 읽기 전용 API에서 발행글을 가져온다.
+ * NestJS SEO API가 제공하는 읽기 전용 API에서 발행글을 가져온다.
  * 타깃 사이트(예: academy.drivingplus.me)의 /community 라우트가 이걸 호출해
  * 자기 디자인 컴포넌트로 렌더한다.
  *

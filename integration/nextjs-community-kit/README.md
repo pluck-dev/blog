@@ -1,13 +1,13 @@
 # Next.js 커뮤니티 통합 키트 (Pull 발행)
 
-양산 관리자(이 레포의 `admin/` FastAPI)가 만든 발행글을, **운영 중인 Next.js 사이트**(예: `academy.drivingplus.me`)의 `/community` 라우트에 **API로 가져와(Pull) 그 사이트의 디자인으로 렌더**하기 위한 복붙용 키트입니다.
+양산 API(이 레포의 `apps/api-nest` NestJS)가 만든 발행글을, **운영 중인 Next.js 사이트**(예: `academy.drivingplus.me`)의 `/community` 라우트에 **API로 가져와(Pull) 그 사이트의 디자인으로 렌더**하기 위한 복붙용 키트입니다.
 
 > 핵심: 콘텐츠(데이터)는 중앙 API에서 오고, **디자인은 타깃 사이트가 소유**합니다. 그래서 테넌트(도메인)마다 다른 디자인이 가능 = SaaS.
 
 ## 아키텍처
 
 ```
-[양산 관리자 admin (FastAPI, 호스팅)]
+[NestJS SEO API (호스팅)]
    └─ GET /api/v1/{domain}/posts        목록
    └─ GET /api/v1/{domain}/posts/{slug} 상세
    └─ GET /api/v1/{domain}/sitemap.xml  사이트맵
