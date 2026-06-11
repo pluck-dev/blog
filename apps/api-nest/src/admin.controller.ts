@@ -288,25 +288,47 @@ function normalizeSeoRegionLevel(value: any): SeoRegionLevel {
 function nullableNumber(value: any): number | null { if (value === "" || value === null || value === undefined) return null; const n = Number(value); return Number.isFinite(n) ? n : null; }
 function isServiceAccount(text: string): boolean { try { const o = JSON.parse(text); return Boolean(o.client_email && o.private_key); } catch { return false; } }
 function renderMarkdown(markdown: string, images: Record<string, string> = {}): string {
-  return markdown.split(/\n{2,}/).map((block) => {
-    const raw = block.trim().split(/\r?\n/).filter((line) => !/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(line.trim())).join("\n").trim();
-    if (/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(raw)) return "";
-    const imageMatch = raw.match(/^\[IMAGE:([A-Za-z0-9_-]+)\]$/);
-    if (imageMatch) {
-      const key = imageMatch[1]!;
-      const src = images[key];
-      if (src) return `<figure class="post-image"><img src="${escapeAttr(src)}" alt="${escapeAttr(key)}" loading="lazy" /></figure>`;
-    }
-    if (isMarkdownTable(raw)) return renderMarkdownTable(raw);
-    if (isMarkdownList(raw)) return renderMarkdownList(raw);
-    if (raw.startsWith(">")) return `<blockquote>${renderInlineMarkdown(raw.replace(/^>\s?/gm, "")).replace(/\n/g, "<br>")}</blockquote>`;
-    const s = renderInlineMarkdown(raw);
-    if (!s) return "";
-    if (raw.startsWith("# ")) return `<h1>${renderInlineMarkdown(raw.slice(2))}</h1>`;
-    if (raw.startsWith("## ")) return `<h2>${renderInlineMarkdown(raw.slice(3))}</h2>`;
-    if (raw.startsWith("### ")) return `<h3>${renderInlineMarkdown(raw.slice(4))}</h3>`;
-    return `<p>${s.replace(/\n/g, "<br>")}</p>`;
-  }).join("\n");
+  return markdownBlocks(markdown).map((raw) => renderMarkdownBlock(raw, images)).filter(Boolean).join("\n");
+}
+function markdownBlocks(markdown: string): string[] {
+  const blocks: string[] = [];
+  let current: string[] = [];
+  let currentKind: "paragraph" | "list" | "quote" | "table" | null = null;
+  const flush = () => {
+    if (!current.length) return;
+    blocks.push(current.join("\n").trim());
+    current = [];
+    currentKind = null;
+  };
+  for (const line of markdown.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || /^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(trimmed)) { flush(); continue; }
+    if (/^#{1,3}\s+/.test(trimmed) || /^\[IMAGE:[A-Za-z0-9_-]+\]$/.test(trimmed)) { flush(); blocks.push(trimmed); continue; }
+    const kind: "paragraph" | "list" | "quote" | "table" = trimmed.includes("|") ? "table" : isListLine(trimmed) ? "list" : trimmed.startsWith(">") ? "quote" : "paragraph";
+    if (currentKind && currentKind !== kind) flush();
+    currentKind = kind;
+    current.push(trimmed);
+  }
+  flush();
+  return blocks;
+}
+function renderMarkdownBlock(raw: string, images: Record<string, string>): string {
+  if (/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(raw)) return "";
+  const imageMatch = raw.match(/^\[IMAGE:([A-Za-z0-9_-]+)\]$/);
+  if (imageMatch) {
+    const key = imageMatch[1]!;
+    const src = images[key];
+    if (src) return `<figure class="post-image"><img src="${escapeAttr(src)}" alt="${escapeAttr(key)}" loading="lazy" /></figure>`;
+    return "";
+  }
+  if (isMarkdownTable(raw)) return renderMarkdownTable(raw);
+  if (isMarkdownList(raw)) return renderMarkdownList(raw);
+  if (raw.startsWith(">")) return `<blockquote>${renderInlineMarkdown(raw.replace(/^>\s?/gm, "")).replace(/\n/g, "<br>")}</blockquote>`;
+  if (raw.startsWith("# ")) return `<h1>${renderInlineMarkdown(raw.slice(2))}</h1>`;
+  if (raw.startsWith("## ")) return `<h2>${renderInlineMarkdown(raw.slice(3))}</h2>`;
+  if (raw.startsWith("### ")) return `<h3>${renderInlineMarkdown(raw.slice(4))}</h3>`;
+  const s = renderInlineMarkdown(raw);
+  return s ? `<p>${s.replace(/\n/g, "<br>")}</p>` : "";
 }
 function stripPseudoSlotsForRender(markdown: string): string {
   return markdown.split(/\r?\n/).filter((line) => !/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(line.trim())).join("\n").replace(/\n{3,}/g, "\n\n").trim();
@@ -345,9 +367,10 @@ function firstAcademyImageUrl(row: Row): string {
   }
   return String(row.thumb_url || "").trim();
 }
+function isListLine(line: string): boolean { return /^[-*]\s+/.test(line) || /^\d+[.)]\s+/.test(line) || /^[✅✔✓]\s*/.test(line); }
 function isMarkdownList(raw: string): boolean {
   const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  return lines.length >= 2 && lines.every((line) => /^[-*]\s+/.test(line) || /^\d+[.)]\s+/.test(line) || /^[✅✔✓]\s*/.test(line));
+  return lines.length >= 2 && lines.every(isListLine);
 }
 function renderMarkdownList(raw: string): string {
   const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);

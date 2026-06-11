@@ -30,7 +30,7 @@ function issuesFor(row) {
   if (h2 >= 6 && !hasFinalUtilitySection(body)) issues.push('template_structure_missing_final_utility_section');
   if (hasFlatParagraphRun(paragraphs)) issues.push('too_flat_paragraphs');
   if (/운전선생|Driving\s*Plus|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy|zipcode\/search-seo|localhost:\d+|127\.0\.0\.1|샘플|데모|sample|demo|dummy|placeholder|TODO|FIXME|내부\s*(?:API|데이터|자료)|검증된\s*(?:API|자료|데이터)|API\s*(?:URL|자료|데이터)|참고\s*API/i.test(body + row.title)) issues.push('internal_or_wrong_brand_leak');
-  if (/[가-힣]+(?:시|군|구|읍|면|동)운전면허학원/.test(String(row.title || '') + '\n' + h1)) issues.push('keyword_spacing_issue');
+  if (/[가-힣]+(?:시|군|구|읍|면|동)운전면허학원/.test(String(row.title || '') + '\n' + body)) issues.push('keyword_spacing_issue');
   if (/상담전확인|동선확인|비용절약|셔틀편리|비교추천/.test(body + row.title)) issues.push('compact_korean_spacing');
   if (/참고자료/.test(body) && !/도로교통공단|경찰청|정부24|법제처/.test(body)) issues.push('weak_source_section');
   if (/\*\*[^*]+\*\*/.test(body)) issues.push('raw_bold_markdown');
@@ -40,11 +40,14 @@ function issuesFor(row) {
   else if (faqQuestions > 0 && faqQuestions < 2) issues.push(`thin_faq:${faqQuestions}`);
   if (!listItems) issues.push('missing_list');
   if (!hasRichStructure({ tableRows, listItems, faqQuestions })) issues.push('missing_rich_structure');
-  if (requiresComparisonTable(row, body) && tableRows < 3) issues.push(`missing_comparison_table:${tableRows}`);
+  if (tableRows < 3) issues.push(`missing_summary_or_comparison_table:${tableRows}`);
   const imageKeys = Object.keys(images);
   const usedImageKeys = [...body.matchAll(/\[IMAGE:([A-Za-z0-9_-]+)\]/g)].map((m) => m[1]);
+  if (imageKeys.length && !usedImageKeys.length) issues.push('missing_available_image_slot');
   const unknown = usedImageKeys.filter((key) => !imageKeys.includes(key));
   if (unknown.length) issues.push(`unknown_image:${[...new Set(unknown)].join(',')}`);
+  const rendered = renderMarkdown(body, images);
+  issues.push(...renderedSurfaceIssues(rendered, { h2, tableRows, usedImageKeys }));
   return { issues, chars: body.length, h2, h3, tableRows, listItems, paragraphs: paragraphs.length, faqQuestions, imageCount: imageKeys.length, imageTokens: usedImageKeys.length };
 }
 
@@ -104,12 +107,6 @@ function hasRichStructure({ tableRows, listItems, faqQuestions }) {
   return blocks >= 2;
 }
 
-function requiresComparisonTable(row, body) {
-  const title = String(row.title || '');
-  const headings = [...body.matchAll(/^##\s+(.+)$/gm)].map((m) => m[1]).join('\n');
-  return /(?:\d+\s*곳|BEST\s*\d+)/i.test(`${title}\n${headings}`);
-}
-
 function parseImages(value) {
   try {
     const parsed = JSON.parse(String(value || '{}'));
@@ -118,6 +115,123 @@ function parseImages(value) {
   } catch {
     return {};
   }
+}
+
+function renderedSurfaceIssues(html, expected) {
+  const issues = [];
+  const text = stripTags(html);
+  const h1Count = (html.match(/<h1>/g) || []).length;
+  const h2Count = (html.match(/<h2>/g) || []).length;
+  const tableRowCount = (html.match(/<tr>/g) || []).length;
+  const renderedImageCount = (html.match(/<figure class="post-image">/g) || []).length;
+  if (!html.trim()) issues.push('rendered_empty');
+  if (/\[IMAGE:[A-Za-z0-9_-]+\]/.test(html)) issues.push('rendered_raw_image_token');
+  if (/\[(?:TABLE|CTA|FAQ|QUOTE|IMAGE)_SLOT:/i.test(html)) issues.push('rendered_pseudo_slot');
+  if (/[가-힣]+(?:시|군|구|읍|면|동)운전면허학원/.test(text)) issues.push('rendered_keyword_spacing_issue');
+  if (h1Count !== 1) issues.push(`rendered_h1_count:${h1Count}`);
+  if (h2Count < expected.h2) issues.push(`rendered_missing_h2:${h2Count}/${expected.h2}`);
+  if (tableRowCount < expected.tableRows) issues.push(`rendered_missing_table_rows:${tableRowCount}/${expected.tableRows}`);
+  if (expected.usedImageKeys.length && renderedImageCount !== expected.usedImageKeys.length) issues.push(`rendered_image_mismatch:${renderedImageCount}/${expected.usedImageKeys.length}`);
+  if (/<h1>[\s\S]*\n[\s\S]*<\/h1>/.test(html)) issues.push('rendered_h1_wraps_body');
+  return issues;
+}
+
+function renderMarkdown(markdown, images = {}) {
+  return markdownBlocks(markdown).map((raw) => renderMarkdownBlock(raw, images)).filter(Boolean).join('\n');
+}
+
+function markdownBlocks(markdown) {
+  const blocks = [];
+  let current = [];
+  let currentKind = null;
+  const flush = () => {
+    if (!current.length) return;
+    blocks.push(current.join('\n').trim());
+    current = [];
+    currentKind = null;
+  };
+  for (const line of String(markdown || '').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || /^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(trimmed)) { flush(); continue; }
+    if (/^#{1,3}\s+/.test(trimmed) || /^\[IMAGE:[A-Za-z0-9_-]+\]$/.test(trimmed)) { flush(); blocks.push(trimmed); continue; }
+    const kind = trimmed.includes('|') ? 'table' : isListLine(trimmed) ? 'list' : trimmed.startsWith('>') ? 'quote' : 'paragraph';
+    if (currentKind && currentKind !== kind) flush();
+    currentKind = kind;
+    current.push(trimmed);
+  }
+  flush();
+  return blocks;
+}
+
+function renderMarkdownBlock(raw, images) {
+  if (/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(raw)) return '';
+  const imageMatch = raw.match(/^\[IMAGE:([A-Za-z0-9_-]+)\]$/);
+  if (imageMatch) {
+    const src = images[imageMatch[1]];
+    return src ? `<figure class="post-image"><img src="${escapeAttr(src)}" alt="${escapeAttr(imageMatch[1])}" loading="lazy" /></figure>` : '';
+  }
+  if (isMarkdownTable(raw)) return renderMarkdownTable(raw);
+  if (isMarkdownListBlock(raw)) return renderMarkdownList(raw);
+  if (raw.startsWith('>')) return `<blockquote>${renderInline(raw.replace(/^>\s?/gm, '')).replace(/\n/g, '<br>')}</blockquote>`;
+  if (raw.startsWith('# ')) return `<h1>${renderInline(raw.slice(2))}</h1>`;
+  if (raw.startsWith('## ')) return `<h2>${renderInline(raw.slice(3))}</h2>`;
+  if (raw.startsWith('### ')) return `<h3>${renderInline(raw.slice(4))}</h3>`;
+  return `<p>${renderInline(raw).replace(/\n/g, '<br>')}</p>`;
+}
+
+function isListLine(line) {
+  return /^[-*]\s+/.test(line) || /^\d+[.)]\s+/.test(line) || /^[✅✔✓]\s*/.test(line);
+}
+
+function isMarkdownListBlock(raw) {
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines.length >= 2 && lines.every(isListLine);
+}
+
+function renderMarkdownList(raw) {
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const ordered = lines.every((line) => /^\d+[.)]\s+/.test(line));
+  const tag = ordered ? 'ol' : 'ul';
+  const items = lines.map((line) => line.replace(/^[-*]\s+/, '').replace(/^\d+[.)]\s+/, '').replace(/^[✅✔✓]\s*/, ''));
+  return `<${tag}>${items.map((item) => `<li>${renderInline(item)}</li>`).join('')}</${tag}>`;
+}
+
+function isMarkdownTable(raw) {
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines.length >= 3 && lines[0].includes('|') && /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(lines[1]);
+}
+
+function renderMarkdownTable(raw) {
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const header = splitTableRow(lines[0]);
+  const rows = lines.slice(2).map(splitTableRow).filter((row) => row.length);
+  return `<div class="post-table-wrap"><table><thead><tr>${header.map((cell) => `<th>${renderInline(cell)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${header.map((_, i) => `<td>${renderInline(row[i] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+
+function splitTableRow(line) {
+  return line.replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim());
+}
+
+function renderInline(raw) {
+  let s = escapeHtml(raw);
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_m, label, url) => `<a href="${escapeAttr(url)}" target="_blank" rel="nofollow noopener">${label}</a>`);
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  s = s.replace(/\[(\d+)\]/g, '<sup class="cite">[$1]</sup>');
+  return s;
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function escapeAttr(s) {
+  return escapeHtml(s).replace(/'/g, '&#39;');
+}
+
+function stripTags(html) {
+  return String(html || '').replace(/<[^>]+>/g, ' ');
 }
 
 const reports = rows.map((row) => ({ row, ...issuesFor(row) }));

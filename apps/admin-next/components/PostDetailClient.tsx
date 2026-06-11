@@ -35,7 +35,6 @@ export default function PostDetailClient({ domain, postId }: { domain: string; p
   const designId = resolveDesign(post.design_template_id ?? tenant?.design_template_id);
   const design = DESIGN_SPECS[designId];
   const brand = publicBrandName(tenant?.display_name ?? domain);
-  const images = parseImages(post.images);
   const articleStyle = { ["--accent" as string]: design.accent, ["--accent-soft" as string]: design.soft, ["--primary" as string]: design.accent, background: design.pageBg };
   const contentHtml = toPreviewBlocks(prepareBodyHtml(renderedHtml, post.title, null));
   const chips = designChips(designId);
@@ -61,30 +60,51 @@ export default function PostDetailClient({ domain, postId }: { domain: string; p
           <section className="preview-bottom-cta"><b>{brand}에서 {design.bottomCta}</b><a className="btn primary" href="#">{design.bottomCta}</a></section>
         </div>
       </article>
-      <aside className="grid"><div className="card card-pad"><h2>메타</h2><p><b>상태:</b> {post.status}</p><p><b>디자인:</b> {design.label} <span className="badge">{designId}</span></p><p><b>provider:</b> {post.provider ?? "-"} {post.model ?? ""}</p><p><b>비용:</b> {post.cost_usd ? `$${post.cost_usd.toFixed(3)}` : "-"}</p><p><b>생성:</b> {post.generated_at}</p><p className="muted">{post.meta_description}</p></div><div><h2>Markdown 원문</h2><pre className="codebox small">{post.body_markdown}</pre></div></aside>
+      <aside className="grid"><div className="card card-pad"><h2>메타</h2><p><b>상태:</b> {post.status}</p><p><b>디자인:</b> {design.label} <span className="badge">{designId}</span></p><p><b>provider:</b> {post.provider ?? "-"} {post.model ?? ""}</p><p><b>비용:</b> {post.cost_usd ? `$${post.cost_usd.toFixed(3)}` : "-"}</p><p><b>생성:</b> {post.generated_at}</p><p className="muted">{post.meta_description}</p><p className="muted small">원문은 상단의 복사/다운로드 버튼으로 확인합니다. 상세 화면에는 발행 디자인만 표시합니다.</p></div></aside>
     </div>
   </div>;
 }
 function download(name: string, text: string, type: string) { const url = URL.createObjectURL(new Blob([text], { type })); const a = document.createElement("a"); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url); }
 function fallbackMarkdown(md: string, images: Record<string, string>) {
-  return md.split(/\n{2,}/).map((p) => {
-    const raw = p.trim().split(/\r?\n/).filter((line) => !/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(line.trim())).join("\n").trim();
-    if (!raw) return "";
-    if (/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(raw)) return "";
-    const imageMatch = raw.match(/^\[IMAGE:([A-Za-z0-9_-]+)\]$/);
-    if (imageMatch) {
-      const key = imageMatch[1]!;
-      const src = images[key];
-      if (src) return `<figure class="post-image"><img src="${escapeAttr(src)}" alt="${escapeAttr(key)}" loading="lazy" /></figure>`;
-    }
-    if (isMarkdownTable(raw)) return renderMarkdownTable(raw);
-    if (isMarkdownList(raw)) return renderMarkdownList(raw);
-    if (raw.startsWith(">")) return `<blockquote>${renderInline(raw.replace(/^>\s?/gm, "")).replace(/\n/g, "<br />")}</blockquote>`;
-    if (raw.startsWith("# ")) return `<h1>${renderInline(raw.slice(2))}</h1>`;
-    if (raw.startsWith("## ")) return `<h2>${renderInline(raw.slice(3))}</h2>`;
-    if (raw.startsWith("### ")) return `<h3>${renderInline(raw.slice(4))}</h3>`;
-    return `<p>${renderInline(raw).replace(/\n/g, "<br />")}</p>`;
-  }).join("");
+  return markdownBlocks(md).map((raw) => renderMarkdownBlock(raw, images)).join("");
+}
+function markdownBlocks(markdown: string): string[] {
+  const blocks: string[] = [];
+  let current: string[] = [];
+  let currentKind: "paragraph" | "list" | "quote" | "table" | null = null;
+  const flush = () => {
+    if (!current.length) return;
+    blocks.push(current.join("\n").trim());
+    current = [];
+    currentKind = null;
+  };
+  for (const line of markdown.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || /^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(trimmed)) { flush(); continue; }
+    if (/^#{1,3}\s+/.test(trimmed) || /^\[IMAGE:[A-Za-z0-9_-]+\]$/.test(trimmed)) { flush(); blocks.push(trimmed); continue; }
+    const kind: "paragraph" | "list" | "quote" | "table" = trimmed.includes("|") ? "table" : isListLine(trimmed) ? "list" : trimmed.startsWith(">") ? "quote" : "paragraph";
+    if (currentKind && currentKind !== kind) flush();
+    currentKind = kind;
+    current.push(trimmed);
+  }
+  flush();
+  return blocks;
+}
+function renderMarkdownBlock(raw: string, images: Record<string, string>) {
+  if (/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(raw)) return "";
+  const imageMatch = raw.match(/^\[IMAGE:([A-Za-z0-9_-]+)\]$/);
+  if (imageMatch) {
+    const key = imageMatch[1]!;
+    const src = images[key];
+    return src ? `<figure class="post-image"><img src="${escapeAttr(src)}" alt="${escapeAttr(key)}" loading="lazy" /></figure>` : "";
+  }
+  if (isMarkdownTable(raw)) return renderMarkdownTable(raw);
+  if (isMarkdownList(raw)) return renderMarkdownList(raw);
+  if (raw.startsWith(">")) return `<blockquote>${renderInline(raw.replace(/^>\s?/gm, "")).replace(/\n/g, "<br />")}</blockquote>`;
+  if (raw.startsWith("# ")) return `<h1>${renderInline(raw.slice(2))}</h1>`;
+  if (raw.startsWith("## ")) return `<h2>${renderInline(raw.slice(3))}</h2>`;
+  if (raw.startsWith("### ")) return `<h3>${renderInline(raw.slice(4))}</h3>`;
+  return `<p>${renderInline(raw).replace(/\n/g, "<br />")}</p>`;
 }
 function renderInline(raw: string): string {
   let s = escapeHtml(raw);
@@ -140,9 +160,10 @@ function toPreviewBlocks(html: string): string {
   flush();
   return groups.join("\n");
 }
+function isListLine(line: string): boolean { return /^[-*]\s+/.test(line) || /^\d+[.)]\s+/.test(line) || /^[✅✔✓]\s*/.test(line); }
 function isMarkdownList(raw: string): boolean {
   const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  return lines.length >= 2 && lines.every((line) => /^[-*]\s+/.test(line) || /^\d+[.)]\s+/.test(line) || /^[✅✔✓]\s*/.test(line));
+  return lines.length >= 2 && lines.every(isListLine);
 }
 function renderMarkdownList(raw: string): string {
   const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);

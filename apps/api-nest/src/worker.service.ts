@@ -317,6 +317,7 @@ function stripMarkdownEmphasis(md: string): string {
 
 function normalizeKoreanSpacing(text: string): string {
   return text
+    .replace(/([가-힣]+(?:시|군|구|읍|면|동))(운전면허학원)/g, "$1 $2")
     .replace(/상담전확인/g, "상담 전 확인")
     .replace(/동선확인/g, "동선 확인")
     .replace(/비용절약/g, "비용 절약")
@@ -335,7 +336,7 @@ function articleQualityIssues(markdown: string, facts: string, images: Record<st
   if (chars < 2600) issues.push(`too_short_${chars}`);
   if (chars > 5000) issues.push(`too_long_${chars}`);
   if (h2Count < 6) issues.push(`not_enough_h2_${h2Count}`);
-  if (candidateCount >= 2 && !isAnyMarkdownTable(markdown)) issues.push("missing_comparison_table");
+  if (!isAnyMarkdownTable(markdown)) issues.push(candidateCount >= 2 ? "missing_comparison_table" : "missing_summary_table");
   if (!/(^|\n)\s*(?:[-*]\s+|\d+[.)]\s+|✅)/m.test(markdown)) issues.push("missing_checklist_or_list");
   if (!/(FAQ|자주 묻는 질문|질문과 답변)/i.test(markdown)) issues.push("missing_faq_section");
   if (/\[(?:TABLE|CTA|FAQ|QUOTE|IMAGE)_SLOT:/i.test(markdown)) issues.push("contains_pseudo_slot");
@@ -362,7 +363,7 @@ function postSurfaceQualityIssues(post: Row, minChars = 2600, candidateCount = 0
   if (chars < minChars) issues.push(`too_short_${chars}`);
   if (chars > 5000) issues.push(`too_long_${chars}`);
   if (h2Count < 6) issues.push(`not_enough_h2_${h2Count}`);
-  if (candidateCount >= 2 && !isAnyMarkdownTable(markdown)) issues.push("missing_comparison_table");
+  if (!isAnyMarkdownTable(markdown)) issues.push(candidateCount >= 2 ? "missing_comparison_table" : "missing_summary_table");
   if (thinSectionCount(markdown) > 1) issues.push("thin_sections");
   if (!/(^|\n)\s*(?:[-*]\s+|\d+[.)]\s+|✅|✓)/m.test(markdown)) issues.push("missing_checklist_or_list");
   if (!/(FAQ|자주 묻는 질문|질문과 답변)/i.test(markdown)) issues.push("missing_faq_section");
@@ -371,6 +372,7 @@ function postSurfaceQualityIssues(post: Row, minChars = 2600, candidateCount = 0
   if (/\[\d+\]/.test(markdown)) issues.push("contains_visible_citations");
   if (/(운전선생|검증된 자료|API 자료|제공된 자료|후기 필드|직접 매칭 후보 수|사용 가능한 이미지 슬롯|본문에 사용할 수 있는 후보|본문에 사용할 수 있는 사진 슬롯|작성자 주의|참고자료|내부자료ID|내부 데이터|내부 API|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy|zipcode\/search-seo|firebasestorage\.googleapis\.com|storage\.googleapis\.com)/i.test(`${title}\n${markdown}`)) issues.push("exposes_internal_fact_language");
   if (/[가-힣]+(?:시|군|구|읍|면|동)운전면허학원/.test(title)) issues.push("keyword_spacing_issue");
+  if (imageKeys.length && usedImageKeys.length === 0) issues.push("missing_available_image_slot");
   const unknown = usedImageKeys.filter((key) => !imageKeys.includes(key));
   if (unknown.length) issues.push(`unknown_image_slots_${Array.from(new Set(unknown)).join("_")}`);
   return issues;
@@ -401,10 +403,8 @@ function thinSectionCount(markdown: string): number {
 }
 
 function isAnyMarkdownTable(markdown: string): boolean {
-  return markdown.split(/\n{2,}/).some((block) => {
-    const lines = block.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    return lines.length >= 3 && lines[0]!.includes("|") && /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(lines[1]!);
-  });
+  const lines = markdown.split(/\r?\n/).map((line) => line.trim());
+  return lines.some((line, index) => line.includes("|") && /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(lines[index + 1] || "") && (lines[index + 2] || "").includes("|"));
 }
 
 function buildRepairPrompt(tenant: Row, slot: Row, facts: string, designTemplateId: string, markdown: string, issues: string[]): string {
@@ -432,7 +432,7 @@ ${facts || "없음"}
 - 제목/지역/후보 학원/이미지는 검증된 자료와 반드시 일치시킨다.
 - 후보 수보다 큰 숫자, 다른 지역 후보, 없는 가격·합격률·셔틀·후기·3일 합격 주장을 만들지 않는다.
 - 첫 줄은 '# ' 제목, H2 6개 이상, 3,000~5,000자 이내.
-- 후보가 2곳 이상이면 Markdown 비교표 1개를 포함한다. 후보가 1곳이어도 요약 체크표 대신 3개 이상 불릿으로 핵심 확인 항목을 정리한다.
+- 후보 수와 관계없이 Markdown 표 1개를 반드시 포함한다. 후보가 1곳이면 비교표 대신 주소/연락처/과정/상담 확인점을 담은 요약표로 작성한다.
 - 체크리스트와 FAQ 3~5개를 포함한다.
 - 사용 가능한 이미지 슬롯이 있으면 실제 키만 [IMAGE:academy_1] 형식으로 본문 흐름에 배치한다.
 - [1], [2] 같은 출처번호와 내부 표현(검증된 자료, API 자료, 후보 수, 참고자료, 내부 API URL 등)은 노출하지 않는다.
@@ -486,10 +486,10 @@ ${facts || "없음"}
 - 첫 줄은 '# ' H1 제목. 제목은 주 키워드/지역/직접 매칭 후보 수와 모순되면 안 된다.
 - H2 섹션을 6개 이상 사용한다.
 - 권장 흐름은 템플릿 필수 구조를 우선 따른다. 공통적으로 도입 → 기준 → 후보 → 비교/요약 → 체크리스트 → FAQ → 상담/예약 CTA가 자연스럽게 이어져야 한다.
-- 제공된 학원이 2곳 이상이면 Markdown 표 1개를 반드시 포함한다. 후보가 1곳이면 표 대신 체크리스트형 요약 박스로 대체한다.
+- 제공된 학원 수와 관계없이 Markdown 표 1개를 반드시 포함한다. 후보가 1곳이면 주소/연락처/과정/추천 대상/상담 확인점을 담은 요약표로 작성한다.
 - 표는 정상 Markdown 표로 작성한다. 예: | 비교 항목 | 후보 A | 후보 B | 형태.
 - 후보별 설명에는 가능한 경우 학원명, 주소, 대표전화(vphone 우선), 운영 과정/유형, 추천 대상, 상담 시 확인할 점을 포함한다.
-- 이미지가 제공된 학원은 해당 학원 설명 직후 [IMAGE:academy_1] 같은 실제 이미지 슬롯을 1~3개 배치한다.
+- 이미지가 제공된 학원이 하나라도 있으면 해당 학원 설명 직후 [IMAGE:academy_1] 같은 실제 이미지 슬롯을 최소 1개, 최대 3개 배치한다. 이미지가 없으면 임의 이미지/플레이스홀더를 만들지 않는다.
 - 허용된 이미지 슬롯은 검증된 자료의 "사용 가능한 이미지 슬롯"에 있는 키만 사용한다.
 - [IMAGE_SLOT: ...], [TABLE_SLOT: ...], [CTA_SLOT: ...], [QUOTE_SLOT: ...] 같은 임의 플레이스홀더는 절대 쓰지 말 것.
 - 체크리스트 섹션은 ✅ 불릿 목록으로 작성한다.
@@ -506,9 +506,9 @@ ${facts || "없음"}
 }
 function designWritingGuide(designTemplateId: string): string {
   const guides: Record<string, string> = {
-    editorial: "브랜드 매거진형. 큰 대표 이미지 아래에서 차분한 설명, 비교표 1개, FAQ, 자연스러운 CTA가 이어지도록 작성한다.",
+    editorial: "브랜드 매거진형. 메인 배너는 제목 중심으로 두고, 본문에는 실제 이미지, 요약/비교표 1개, FAQ, 자연스러운 CTA가 이어지도록 작성한다.",
     comparison: "BEST 비교형. 비교표를 앞쪽에 배치하고 후보별 장단점, 추천 대상, 선택 기준을 명확히 작성한다.",
-    "local-guide": "지역 추천형. 지역명, 생활권, 셔틀/동선, 가까운 후보 비교표를 중심으로 로컬 큐레이터처럼 작성한다.",
+    "local-guide": "지역 추천형. 지역명, 생활권, 셔틀/동선, 가까운 후보 요약/비교표를 중심으로 로컬 큐레이터처럼 작성한다.",
     checklist: "체크리스트형. 준비 순서, 상담 전 확인 항목, 실수 방지 체크와 요약표를 짧은 블록으로 나눠 작성한다.",
     conversion: "예약 전환형. 문제 공감, 해결 기준, 비용/상담 질문 비교표, 예약 CTA가 분명하게 이어지도록 작성한다.",
     custom: "사용자 지정형. 저장된 기획 메모와 템플릿 구조를 우선 따르되, 섹션을 명확히 나눠 작성한다.",
@@ -521,7 +521,7 @@ function designStructureGuide(designTemplateId: string): string {
       "1) 상황 공감형 도입: 독자가 왜 지금 이 정보를 찾는지 2~3문장으로 시작",
       "2) 핵심 기준 카드: 비용·동선·과정·상담 질문을 묶어 설명",
       "3) 후보 소개: 각 후보를 생활권/추천 대상/상담 확인점으로 풀어쓰기",
-      "4) 비교표: 2곳 이상일 때 후보별 핵심 차이를 표로 정리",
+      "4) 요약/비교표: 후보 수와 관계없이 핵심 차이 또는 핵심 정보를 표로 정리",
       "5) FAQ와 자연스러운 상담 CTA로 마무리",
     ],
     comparison: [
@@ -568,7 +568,6 @@ function rewriteH1Title(md: string, title: string): string {
 }
 function cleanGeneratedTitle(title: string): string {
   return normalizeKoreanSpacing(stripMarkdownEmphasis(title))
-    .replace(/([가-힣]+(?:시|군|구|읍|면|동))(운전면허학원)/g, "$1 $2")
     .replace(/\s{2,}/g, " ")
     .trim();
 }
