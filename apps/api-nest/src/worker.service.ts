@@ -379,6 +379,8 @@ function buildRepairPrompt(tenant: Row, slot: Row, facts: string, designTemplate
 테넌트: ${brand}
 디자인 템플릿: ${designTemplateId}
 디자인 작성 지침: ${designWritingGuide(designTemplateId)}
+템플릿 필수 구조:
+${designStructureGuide(designTemplateId)}
 주 키워드: ${slot.primary_keyword}
 지역: ${slot.region || ""}
 페르소나: ${slot.persona || ""}
@@ -415,12 +417,15 @@ function buildPrompt(tenant: Row, slot: Row, facts: string, designTemplateId: st
 업종: ${tenant.vertical || "general"}
 디자인 템플릿: ${designTemplateId}
 디자인 작성 지침: ${designWritingGuide(designTemplateId)}
+템플릿 필수 구조:
+${designStructureGuide(designTemplateId)}
 템플릿: ${slot.template_id}
 주 키워드: ${slot.primary_keyword}
 지역: ${slot.region || ""}
 페르소나: ${slot.persona || ""}
 의도: ${slot.intent || ""}
 수식어: ${[slot.modifier_1, slot.modifier_2].filter(Boolean).join(", ")}
+브랜드/작성 메모: ${tenant.content_brief || "없음"}
 
 검증된 자료:
 ${facts || "없음"}
@@ -445,7 +450,7 @@ ${facts || "없음"}
 필수 출력 구조:
 - 첫 줄은 '# ' H1 제목. 제목은 주 키워드/지역/직접 매칭 후보 수와 모순되면 안 된다.
 - H2 섹션을 6개 이상 사용한다.
-- 권장 흐름: 도입 → 이 지역에서 먼저 볼 기준 → 직접 확인 가능한 학원 후보 → 비교표/요약 → 상담 전 체크리스트 → FAQ → 상담/예약 CTA.
+- 권장 흐름은 템플릿 필수 구조를 우선 따른다. 공통적으로 도입 → 기준 → 후보 → 비교/요약 → 체크리스트 → FAQ → 상담/예약 CTA가 자연스럽게 이어져야 한다.
 - 제공된 학원이 2곳 이상이면 Markdown 표 1개를 반드시 포함한다. 후보가 1곳이면 표 대신 체크리스트형 요약 박스로 대체한다.
 - 표는 정상 Markdown 표로 작성한다. 예: | 비교 항목 | 후보 A | 후보 B | 형태.
 - 후보별 설명에는 가능한 경우 학원명, 주소, 대표전화(vphone 우선), 운영 과정/유형, 추천 대상, 상담 시 확인할 점을 포함한다.
@@ -474,6 +479,47 @@ function designWritingGuide(designTemplateId: string): string {
     custom: "사용자 지정형. 저장된 기획 메모와 템플릿 구조를 우선 따르되, 섹션을 명확히 나눠 작성한다.",
   };
   return guides[designTemplateId] || guides.editorial!;
+}
+function designStructureGuide(designTemplateId: string): string {
+  const guides: Record<string, string[]> = {
+    editorial: [
+      "1) 상황 공감형 도입: 독자가 왜 지금 이 정보를 찾는지 2~3문장으로 시작",
+      "2) 핵심 기준 카드: 비용·동선·과정·상담 질문을 묶어 설명",
+      "3) 후보 소개: 각 후보를 생활권/추천 대상/상담 확인점으로 풀어쓰기",
+      "4) 비교표: 2곳 이상일 때 후보별 핵심 차이를 표로 정리",
+      "5) FAQ와 자연스러운 상담 CTA로 마무리",
+    ],
+    comparison: [
+      "1) 첫 H2 또는 두 번째 H2 안에 '한눈에 비교표'를 배치",
+      "2) 후보별 장단점과 추천 대상을 분리",
+      "3) 선택 기준은 가격 단정이 아니라 상담 확인 질문으로 표현",
+      "4) 마지막에 '이런 사람에게 이 후보' 식의 결론을 제공",
+    ],
+    "local-guide": [
+      "1) 지역 생활권/출발지/동선 고민을 먼저 설명",
+      "2) 같은 구·동 생활권의 직접 매칭 후보만 소개",
+      "3) 셔틀·대중교통·자주 가는 생활권 기준의 선택 팁 포함",
+      "4) 상담 전 체크리스트는 '내 출발지 기준' 질문으로 구성",
+    ],
+    checklist: [
+      "1) 초반에 상담 전 체크리스트를 배치",
+      "2) 절차/준비물/비용 확인/시험 방식 순서로 짧고 명확하게 정리",
+      "3) 각 체크 항목 뒤에 왜 필요한지 1문장 설명",
+      "4) FAQ는 실수 방지 질문 중심으로 구성",
+    ],
+    conversion: [
+      "1) 문제 공감 → 해결 기준 → 후보/상담 → CTA 순서 유지",
+      "2) 상담 버튼으로 이어질 만한 문장과 질문을 명확히 작성",
+      "3) 비용·일정·면허 종류를 상담에서 확인하도록 유도",
+      "4) 마지막 CTA는 과장 없이 지금 할 행동을 제시",
+    ],
+    custom: [
+      "1) 브랜드/작성 메모가 있으면 해당 의도를 최우선 반영",
+      "2) 상단 구성, 표/이미지 위치, CTA 위치를 메모와 맞춘다",
+      "3) 메모가 없으면 editorial 구조를 따른다",
+    ],
+  };
+  return (guides[designTemplateId] || guides.editorial!).map((line) => `- ${line}`).join("\n");
 }
 function publicBrandName(tenant: Row): string {
   return String(tenant.display_name || tenant.domain || "서비스").replace(/\s*샘플\s*$/u, "").trim() || "서비스";
