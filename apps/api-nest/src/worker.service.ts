@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DbService, safeJson } from "./db.service.js";
 
@@ -93,7 +93,7 @@ export class WorkerService {
           duration_sec: durationSec, input_tokens: inputTokens, output_tokens: outputTokens
         });
         this.db.updateSlotStatus(sid, "published");
-        publishHtml(slug, markdown);
+        publishMarkdownArtifact(slug, markdown);
         ok++; per_slot.push({ slot_id: sid, ok: true, duration_sec: durationSec, chars: markdown.length, model });
       } catch (error: any) {
         const message = error?.message || String(error);
@@ -549,8 +549,7 @@ function ensureImageSlots(md: string, images: Record<string, string>) {
   return blocks.join("\n\n").trim();
 }
 function metaDescription(md: string) { for (const raw of md.split(/\r?\n/)) { const s = raw.trim(); if (s && !s.startsWith("#") && !s.startsWith(">") && !s.startsWith("|") && !/^\[IMAGE:[A-Za-z0-9_-]+\]$/.test(s)) return s.replace(/[\*_`#]/g, "").slice(0, 155); } return ""; }
-function publishHtml(slug: string, md: string) { const dir = resolve(process.cwd(), "output"); mkdirSync(dir, { recursive: true }); writeFileSync(resolve(dir, `${slug}.html`), `<article><pre>${escapeHtml(md)}</pre></article>`, "utf8"); }
+function publishMarkdownArtifact(slug: string, md: string) { const dir = resolve(process.cwd(), "output"); mkdirSync(dir, { recursive: true }); const staleHtml = resolve(dir, `${slug}.html`); if (existsSync(staleHtml)) unlinkSync(staleHtml); writeFileSync(resolve(dir, `${slug}.md`), md, "utf8"); }
 function jaccard(a: string, b: string) { const A = new Set(tokens(a)), B = new Set(tokens(b)); if (!A.size || !B.size) return 0; let inter = 0; for (const t of A) if (B.has(t)) inter++; return inter / (A.size + B.size - inter); }
 function tokens(s: string) { return s.toLowerCase().replace(/[^\w가-힣\s]/g, " ").split(/\s+/).filter((t) => t.length > 1); }
-function escapeHtml(s: string) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] || c)); }
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
