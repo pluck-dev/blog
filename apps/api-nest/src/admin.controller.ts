@@ -292,6 +292,7 @@ function renderMarkdown(markdown: string, images: Record<string, string> = {}): 
       const src = images[key];
       if (src) return `<figure class="post-image"><img src="${escapeAttr(src)}" alt="${escapeAttr(key)}" loading="lazy" /></figure>`;
     }
+    if (isMarkdownTable(raw)) return renderMarkdownTable(raw);
     const s = renderInlineMarkdown(raw);
     if (!s) return "";
     if (raw.startsWith("# ")) return `<h1>${renderInlineMarkdown(raw.slice(2))}</h1>`;
@@ -299,6 +300,19 @@ function renderMarkdown(markdown: string, images: Record<string, string> = {}): 
     if (raw.startsWith("### ")) return `<h3>${renderInlineMarkdown(raw.slice(4))}</h3>`;
     return `<p>${s.replace(/\n/g, "<br>")}</p>`;
   }).join("\n");
+}
+function isMarkdownTable(raw: string): boolean {
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines.length >= 3 && lines[0]!.includes("|") && /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(lines[1]!);
+}
+function renderMarkdownTable(raw: string): string {
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const header = splitTableRow(lines[0]!);
+  const rows = lines.slice(2).map(splitTableRow).filter((row) => row.length);
+  return `<div class="post-table-wrap"><table><thead><tr>${header.map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${header.map((_, i) => `<td>${renderInlineMarkdown(row[i] || "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+function splitTableRow(line: string): string[] {
+  return line.replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
 }
 function renderInlineMarkdown(raw: string): string {
   let s = escapeHtml(raw);
