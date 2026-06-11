@@ -1,3 +1,5 @@
+import { readdirSync, statSync } from 'node:fs';
+import { basename, join, relative } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 const args = process.argv.slice(2);
@@ -43,5 +45,29 @@ function parseImages(value) {
 
 const reports = rows.map((row) => ({ row, ...issuesFor(row) }));
 const bad = reports.filter((r) => r.issues.length);
-console.log(JSON.stringify({ checked: rows.length, failed: bad.length, failures: bad.map((r) => ({ id: r.row.id, slot_id: r.row.slot_id, status: r.row.status, chars: r.chars, h2: r.h2, images: r.imageCount, imageTokens: r.imageTokens, title: r.row.title, issues: r.issues })) }, null, 2));
-if (bad.length) process.exit(1);
+const outputHtmlArtifacts = findOutputHtmlArtifacts(process.cwd());
+console.log(JSON.stringify({ checked: rows.length, failed: bad.length, outputHtmlArtifacts, failures: bad.map((r) => ({ id: r.row.id, slot_id: r.row.slot_id, status: r.row.status, chars: r.chars, h2: r.h2, images: r.imageCount, imageTokens: r.imageTokens, title: r.row.title, issues: r.issues })) }, null, 2));
+if (bad.length || outputHtmlArtifacts.length) process.exit(1);
+
+function findOutputHtmlArtifacts(root) {
+  const found = [];
+  walk(root, found);
+  return found.sort();
+}
+
+function walk(dir, found) {
+  let entries;
+  try { entries = readdirSync(dir); } catch { return; }
+  const isOutputDir = basename(dir) === 'output';
+  for (const entry of entries) {
+    if (['.git', '.next', 'dist', 'node_modules', '.omx'].includes(entry)) continue;
+    const path = join(dir, entry);
+    let stat;
+    try { stat = statSync(path); } catch { continue; }
+    if (stat.isDirectory()) {
+      walk(path, found);
+    } else if (isOutputDir && entry.endsWith('.html')) {
+      found.push(relative(process.cwd(), path));
+    }
+  }
+}
