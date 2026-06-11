@@ -56,15 +56,16 @@ export class WorkerService {
       this.db.updateSlotStatus(sid, "in_progress");
       try {
         const facts = this.buildFacts(tenant, slot);
+        const images = { ...this.imagesForSlot(tenant, slot), ...facts.images };
         const prompt = buildPrompt(tenantMeta, slot, facts.text, designTemplateId);
         const result = await runLlm(prompt, { provider: payload.provider || "claude", model: payload.model || "", timeoutSec: Number(payload.timeout_sec || 600) });
         if (!result.ok || !result.summary.trim()) throw new Error(result.error || "empty summary");
-        const markdown = stripPreamble(result.summary);
+        const markdown = ensureImageSlots(stripPseudoSlots(stripPreamble(result.summary)), images);
         const title = extractTitle(markdown, slot.primary_keyword);
         const slug = this.db.uniqueSlug(tenant, slugify(title), sid);
         this.db.insertPost({
           tenant, slot_id: sid, slug, title, body_markdown: markdown,
-          meta_description: metaDescription(markdown), images: Object.keys(facts.images).length ? JSON.stringify(facts.images) : null, design_template_id: designTemplateId,
+          meta_description: metaDescription(markdown), images: Object.keys(images).length ? JSON.stringify(images) : null, design_template_id: designTemplateId,
           provider: result.provider, model: result.model, session_id: result.session_id, cost_usd: result.cost_usd || 0,
           duration_sec: result.duration_sec, input_tokens: result.input_tokens || 0, output_tokens: result.output_tokens || 0
         });
@@ -97,6 +98,16 @@ export class WorkerService {
       return parts.join(" / ");
     }).join("\n");
     return { text, images };
+  }
+
+  private imagesForSlot(tenant: string, slot: Row): Record<string, string> {
+    if (!slot.region) return {};
+    const images: Record<string, string> = {};
+    for (const [i, academy] of this.pickAcademiesForRegion(tenant, String(slot.region), 5).entries()) {
+      const imageKey = firstImageKey(academy, i + 1);
+      if (imageKey.url) images[imageKey.key] = imageKey.url;
+    }
+    return images;
   }
 
   private pickAcademiesForRegion(tenant: string, region: string, limit: number): Row[] {
@@ -280,13 +291,20 @@ ${facts || "없음"}
 필수 출력 구조:
 - 첫 줄은 '# ' H1 제목
 - 본문에는 '## ' H2 섹션을 최소 6개 이상 사용
-- 도입 → 지역/상황 고민 → 선택 기준 → 학원 후보별 설명 → 비교/체크 포인트 → 상담 전 질문 → 마무리 CTA 순서로 구성
+- 도입 → 지역/상황 고민 → 선택 기준 → 학원 후보별 설명 → 비교표 → 체크리스트 → FAQ → 마무리 CTA 순서로 구성
+- 각 H2 섹션은 제목만 던지지 말고, 2~3개의 자연스러운 문단 또는 목록/표/인용을 함께 배치
+- 문단을 한 줄씩 끊지 말고 같은 주제의 설명은 이어지는 단락으로 구성
+- 레퍼런스형 블로그처럼 섹션 안에서 설명이 자연스럽게 이어져야 하며, 문단마다 독립 카드처럼 짧게 끊지 말 것
 - 제공된 학원이 3곳 이상이면 최소 3곳을 각각 별도 문단으로 자세히 설명
 - 각 학원 문단에는 가능한 경우 학원명, 주소, 대표전화(vphone 우선), 운영 과정/유형, 어떤 사람에게 맞는지를 포함
 - 이미지가 제공된 학원은 해당 학원 설명 직후 [IMAGE:academy_1] 같은 이미지 슬롯을 1~3개 자연스럽게 배치
+- 허용된 이미지 슬롯은 [IMAGE:academy_1]처럼 검증된 자료에 실제로 있는 키만 사용
+- [IMAGE_SLOT: ...], [TABLE_SLOT: ...], [CTA_SLOT: ...] 같은 임의 플레이스홀더는 절대 쓰지 말 것
 - 글 중간에 Markdown 표 1개를 반드시 포함. 표는 학원 후보 비교 또는 선택 기준 비교로 작성
 - 표 형식은 반드시 | 항목 | 후보 A | 후보 B | 후보 C | 형태의 정상 Markdown 표로 작성
-- 체크리스트 섹션은 불릿 목록으로 작성하고, FAQ 섹션은 질문/답변 형태로 작성
+- 표는 4~5개 행으로 후보별 위치/과정/추천 대상/확인할 점을 비교
+- 체크리스트 섹션은 불릿 목록으로 작성하고, FAQ 섹션은 질문/답변 3~5개로 작성
+- 실제 후기나 상담 상황을 설명하는 짧은 인용문을 1개 포함. 단, 제공 자료에 없는 후기를 실제 후기처럼 단정하지 말 것
 
 품질 요구사항:
 - 2,400자 이상, 5,000자 이내로 작성
@@ -313,6 +331,18 @@ function designWritingGuide(designTemplateId: string): string {
 function extractTitle(md: string, fallback: string) { return md.split(/\r?\n/).map((l) => l.trim()).find((l) => l.startsWith("# "))?.slice(2).trim() || fallback; }
 function slugify(text: string) { return (text || "post").trim().replace(/[^\w가-힣\s-]/g, "").replace(/[\s_]+/g, "-").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "post"; }
 function stripPreamble(md: string) { const lines = md.split(/\r?\n/); const i = lines.findIndex((l) => l.trim().startsWith("# ")); return (i >= 0 ? lines.slice(i).join("\n") : md).trim(); }
+function stripPseudoSlots(md: string) { return md.split(/\r?\n/).filter((line) => !/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(line.trim())).join("\n").replace(/\n{3,}/g, "\n\n").trim(); }
+function ensureImageSlots(md: string, images: Record<string, string>) {
+  const keys = Object.keys(images).sort((a, b) => a.localeCompare(b));
+  if (!keys.length || /\[IMAGE:[A-Za-z0-9_-]+\]/.test(md)) return md;
+  const insertions = (keys.length > 2 ? keys.slice(2, 4) : []).map((key) => `[IMAGE:${key}]`);
+  if (!insertions.length) return md;
+  const blocks = md.split(/\n{2,}/);
+  if (blocks.length <= 2) return `${md}\n\n${insertions.join("\n\n")}`.trim();
+  blocks.splice(Math.min(2, blocks.length), 0, insertions[0]!);
+  if (insertions[1]) blocks.splice(Math.max(4, Math.floor(blocks.length * 0.6)), 0, insertions[1]);
+  return blocks.join("\n\n").trim();
+}
 function metaDescription(md: string) { for (const raw of md.split(/\r?\n/)) { const s = raw.trim(); if (s && !s.startsWith("#") && !s.startsWith(">") && !s.startsWith("|")) return s.replace(/[\*_`#]/g, "").slice(0, 155); } return ""; }
 function publishHtml(slug: string, md: string) { const dir = resolve(process.cwd(), "output"); mkdirSync(dir, { recursive: true }); writeFileSync(resolve(dir, `${slug}.html`), `<article><pre>${escapeHtml(md)}</pre></article>`, "utf8"); }
 function jaccard(a: string, b: string) { const A = new Set(tokens(a)), B = new Set(tokens(b)); if (!A.size || !B.size) return 0; let inter = 0; for (const t of A) if (B.has(t)) inter++; return inter / (A.size + B.size - inter); }

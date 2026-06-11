@@ -151,8 +151,12 @@ export class AdminController {
   getPost(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Param("postId") postId: string, @Query("include_rendered") rendered = "") {
     checkAuth(req, headers); this.requireTenant(domain);
     const post = this.db.getPost(postId); if (!post || post.tenant !== domain) throw new HttpException("post not found", 404);
-    const payload: Row = { post };
-    if (rendered === "true" || rendered === "1") payload.body_html = renderMarkdown(post.body_markdown || "", safeJson(post.images, {}));
+    const dbImages = safeJson(post.images, {});
+    const mergedImages = { ...fallbackImagesForPost(this.db, domain, post), ...(dbImages && typeof dbImages === "object" ? dbImages : {}) };
+    const bodyMarkdown = ensureImageSlotsForRender(stripPseudoSlotsForRender(post.body_markdown || ""), mergedImages);
+    const responsePost = { ...post, body_markdown: bodyMarkdown, images: Object.keys(mergedImages).length ? JSON.stringify(mergedImages) : post.images };
+    const payload: Row = { post: responsePost };
+    if (rendered === "true" || rendered === "1") payload.body_html = renderMarkdown(bodyMarkdown, mergedImages);
     return payload;
   }
 
@@ -285,7 +289,8 @@ function nullableNumber(value: any): number | null { if (value === "" || value =
 function isServiceAccount(text: string): boolean { try { const o = JSON.parse(text); return Boolean(o.client_email && o.private_key); } catch { return false; } }
 function renderMarkdown(markdown: string, images: Record<string, string> = {}): string {
   return markdown.split(/\n{2,}/).map((block) => {
-    const raw = block.trim();
+    const raw = block.trim().split(/\r?\n/).filter((line) => !/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(line.trim())).join("\n").trim();
+    if (/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(raw)) return "";
     const imageMatch = raw.match(/^\[IMAGE:([A-Za-z0-9_-]+)\]$/);
     if (imageMatch) {
       const key = imageMatch[1]!;
@@ -293,6 +298,8 @@ function renderMarkdown(markdown: string, images: Record<string, string> = {}): 
       if (src) return `<figure class="post-image"><img src="${escapeAttr(src)}" alt="${escapeAttr(key)}" loading="lazy" /></figure>`;
     }
     if (isMarkdownTable(raw)) return renderMarkdownTable(raw);
+    if (isMarkdownList(raw)) return renderMarkdownList(raw);
+    if (raw.startsWith(">")) return `<blockquote>${renderInlineMarkdown(raw.replace(/^>\s?/gm, "")).replace(/\n/g, "<br>")}</blockquote>`;
     const s = renderInlineMarkdown(raw);
     if (!s) return "";
     if (raw.startsWith("# ")) return `<h1>${renderInlineMarkdown(raw.slice(2))}</h1>`;
@@ -300,6 +307,49 @@ function renderMarkdown(markdown: string, images: Record<string, string> = {}): 
     if (raw.startsWith("### ")) return `<h3>${renderInlineMarkdown(raw.slice(4))}</h3>`;
     return `<p>${s.replace(/\n/g, "<br>")}</p>`;
   }).join("\n");
+}
+function stripPseudoSlotsForRender(markdown: string): string {
+  return markdown.split(/\r?\n/).filter((line) => !/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(line.trim())).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+function ensureImageSlotsForRender(markdown: string, images: Record<string, string>): string {
+  const keys = Object.keys(images).sort((a, b) => a.localeCompare(b));
+  if (!keys.length || /\[IMAGE:[A-Za-z0-9_-]+\]/.test(markdown)) return markdown;
+  const bodyKeys = keys.length > 2 ? keys.slice(2, 4) : [];
+  if (!bodyKeys.length) return markdown;
+  const blocks = markdown.split(/\n{2,}/);
+  if (blocks.length <= 2) return `${markdown}\n\n[IMAGE:${bodyKeys[0]!}]`.trim();
+  blocks.splice(Math.min(2, blocks.length), 0, `[IMAGE:${bodyKeys[0]!}]`);
+  if (bodyKeys[1]) blocks.splice(Math.max(4, Math.floor(blocks.length * 0.6)), 0, `[IMAGE:${bodyKeys[1]}]`);
+  return blocks.join("\n\n").trim();
+}
+function fallbackImagesForPost(db: DbService, tenant: string, post: Row): Record<string, string> {
+  const slot = post.slot_id ? db.getSlot(post.slot_id) : null;
+  if (!slot?.region) return {};
+  const images: Record<string, string> = {};
+  for (const [i, academy] of db.listAcademies(tenant, { region: String(slot.region), limit: 5 }).entries()) {
+    const url = firstAcademyImageUrl(academy);
+    if (url) images[`academy_${i + 1}`] = url;
+  }
+  return images;
+}
+function firstAcademyImageUrl(row: Row): string {
+  const photos = safeJson(row.photos, []);
+  if (Array.isArray(photos)) {
+    const photo = photos.map((v) => String(v || "").trim()).find(Boolean);
+    if (photo) return photo;
+  }
+  return String(row.thumb_url || "").trim();
+}
+function isMarkdownList(raw: string): boolean {
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines.length >= 2 && lines.every((line) => /^[-*]\s+/.test(line) || /^\d+[.)]\s+/.test(line));
+}
+function renderMarkdownList(raw: string): string {
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const ordered = lines.every((line) => /^\d+[.)]\s+/.test(line));
+  const tag = ordered ? "ol" : "ul";
+  const items = lines.map((line) => line.replace(/^[-*]\s+/, "").replace(/^\d+[.)]\s+/, ""));
+  return `<${tag}>${items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</${tag}>`;
 }
 function isMarkdownTable(raw: string): boolean {
   const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
