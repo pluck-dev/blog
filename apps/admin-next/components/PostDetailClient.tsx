@@ -32,30 +32,30 @@ export default function PostDetailClient({ domain, postId }: { domain: string; p
   if (error) return <p className="toast-error">{error}</p>;
   if (!post) return <div className="card card-pad">로딩 중...</div>;
   const renderedHtml = publishedHtml || bodyHtml || fallbackMarkdown(post.body_markdown, parseImages(post.images));
-  const designId = resolveDesign(post.design_template_id ?? tenant?.design_template_id);
+  const designId = resolveDesign(tenant?.design_template_id ?? post.design_template_id);
   const design = DESIGN_SPECS[designId];
   const brand = tenant?.display_name ?? domain;
   const images = parseImages(post.images);
   const heroImage = firstImage(images);
   const articleStyle = { ["--accent" as string]: design.accent, ["--accent-soft" as string]: design.soft, ["--primary" as string]: design.accent, background: design.pageBg };
-  const contentHtml = prepareBodyHtml(renderedHtml, post.title, Boolean(heroImage));
+  const contentHtml = toPreviewBlocks(prepareBodyHtml(renderedHtml, post.title, Boolean(heroImage)));
   const chips = designChips(designId);
   return <div>
     <div className="page-head"><div><Link href={`/t/${encodeURIComponent(domain)}`} className="eyebrow">← {domain}</Link><h1>{post.title}</h1><p className="muted mono">{post.slug}</p></div><div className="row"><button className="btn" onClick={() => navigator.clipboard.writeText(post.body_markdown)}>Markdown 복사</button><button className="btn" onClick={() => download(`${post.slug}.md`, post.body_markdown, "text/markdown")}>Markdown 다운로드</button><button className="btn primary" onClick={() => download(`${post.slug}.html`, renderStandaloneHtml({ post, tenant, domain, designId, bodyHtml: renderedHtml }), "text/html;charset=utf-8")}>HTML 다운로드</button></div></div>
-    <div className="grid grid-2" style={{ alignItems: "start" }}>
-      <article className={`post-preview preview-phone post-detail-template design-${designId}`} style={articleStyle}>
+    <div className="grid post-detail-layout" style={{ gridTemplateColumns: "minmax(0, 1fr) 320px", alignItems: "start" }}>
+      <article className={`preview-phone preview-phone-fluid design-${designId}`} style={articleStyle}>
         <div className="preview-top"><div><b>{brand}</b><p>{design.label}</p></div><span className="preview-cta">{design.topCta}</span></div>
         <div className={`preview-hero post-hero ${heroImage ? "has-image" : ""}`}>
           {heroImage && <img src={heroImage} alt={`${brand} 대표 이미지`} loading="lazy" />}
           <span>{heroImage ? "academy image" : "blog main image"}</span>
         </div>
-        <div className="preview-body post-body">
+        <div className="preview-body">
           <div className="preview-meta"><span>{formatShortDate(post.generated_at)}</span><span>{designId}</span></div>
-          <h1 className="post-title">{post.title}</h1>
+          <h4>{post.title}</h4>
           <div className="preview-divider" />
           <div className="row post-chips">{chips.map((chip) => <span className="badge" key={chip}>{chip}</span>)}</div>
           {post.meta_description && <p className="muted small post-lead">{post.meta_description}</p>}
-          <div className="post-content" dangerouslySetInnerHTML={{ __html: contentHtml }} />
+          <div className="generated-blocks" dangerouslySetInnerHTML={{ __html: contentHtml }} />
           <section className="preview-bottom-cta"><b>{brand}에서 {design.bottomCta}</b><a className="btn primary" href="#">{design.bottomCta}</a></section>
         </div>
       </article>
@@ -112,6 +112,14 @@ function prepareBodyHtml(html: string, title: string, promoteFirstImage: boolean
   if (promoteFirstImage) out = out.replace(/<figure class="post-image">[\s\S]*?<\/figure>\s*/i, "");
   return out;
 }
+function toPreviewBlocks(html: string): string {
+  const blocks = html.match(/<figure class="post-image">[\s\S]*?<\/figure>|<h2>[\s\S]*?<\/h2>|<h3>[\s\S]*?<\/h3>|<p>[\s\S]*?<\/p>/gi);
+  if (!blocks?.length) return html ? `<div class="preview-block"><p>${html}</p></div>` : "";
+  return blocks.map((block) => {
+    if (block.startsWith("<figure")) return block;
+    return `<div class="preview-block">${block}</div>`;
+  }).join("\n");
+}
 function designChips(designId: DesignTemplateId): string[] {
   const chips: Record<DesignTemplateId, string[]> = {
     editorial: ["가이드", "FAQ", "정보성"],
@@ -135,7 +143,7 @@ function renderStandaloneHtml({ post, tenant, domain, designId, bodyHtml }: { po
   const brand = tenant?.display_name ?? domain;
   const title = post.title || brand;
   const heroImage = firstImage(parseImages(post.images));
-  const contentHtml = prepareBodyHtml(bodyHtml, post.title, Boolean(heroImage));
+  const contentHtml = toPreviewBlocks(prepareBodyHtml(bodyHtml, post.title, Boolean(heroImage)));
   const chips = designChips(designId);
   return `<!doctype html>
 <html lang="ko">
@@ -148,19 +156,19 @@ function renderStandaloneHtml({ post, tenant, domain, designId, bodyHtml }: { po
 </head>
 <body>
   <main class="post-page">
-    <article class="post-preview preview-phone post-detail-template design-${designId}" style="--accent:${design.accent};--accent-soft:${design.soft};--primary:${design.accent};background:${design.pageBg}">
+    <article class="preview-phone preview-phone-fluid design-${designId}" style="--accent:${design.accent};--accent-soft:${design.soft};--primary:${design.accent};background:${design.pageBg}">
       <div class="preview-top"><div><b>${escapeHtml(brand)}</b><p>${escapeHtml(design.label)}</p></div><span class="preview-cta">${escapeHtml(design.topCta)}</span></div>
       <div class="preview-hero post-hero ${heroImage ? "has-image" : ""}">
         ${heroImage ? `<img src="${escapeAttr(heroImage)}" alt="${escapeAttr(`${brand} 대표 이미지`)}" loading="lazy" />` : ""}
         <span>${heroImage ? "academy image" : "blog main image"}</span>
       </div>
-      <div class="preview-body post-body">
+      <div class="preview-body">
         <div class="preview-meta"><span>${escapeHtml(formatShortDate(post.generated_at))}</span><span>${escapeHtml(designId)}</span></div>
-        <h1 class="post-title">${escapeHtml(post.title)}</h1>
+        <h4>${escapeHtml(post.title)}</h4>
         <div class="preview-divider"></div>
         <div class="row post-chips">${chips.map((chip) => `<span class="badge">${escapeHtml(chip)}</span>`).join("")}</div>
         ${post.meta_description ? `<p class="muted small post-lead">${escapeHtml(post.meta_description)}</p>` : ""}
-        <div class="post-content">
+        <div class="generated-blocks">
 ${contentHtml}
         </div>
         <section class="preview-bottom-cta"><b>${escapeHtml(brand)}에서 ${escapeHtml(design.bottomCta)}</b><a class="btn primary" href="#">${escapeHtml(design.bottomCta)}</a></section>
@@ -172,5 +180,5 @@ ${contentHtml}
 }
 function standaloneCss() {
   return `
-*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#eef2f7;color:#111827;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.post-page{padding:32px 16px}.post-preview{width:min(760px,100%);margin:0 auto;border:1px solid #e5e7eb;border-radius:24px;overflow:hidden;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.14)}.preview-top{background:var(--accent);color:white;padding:22px 26px;display:flex;justify-content:space-between;gap:16px;align-items:center}.preview-top b{font-size:20px}.preview-top p{margin:4px 0 0;opacity:.86;font-size:14px}.preview-cta{border-radius:14px;background:#ffe94d;color:#111827;padding:10px 15px;font-size:14px;font-weight:900;white-space:nowrap}.preview-hero{margin:26px;aspect-ratio:16/9;border-radius:18px;background:linear-gradient(135deg,#d8e8ff,#f6f0ff 45%,#fff4a7);position:relative;overflow:hidden}.preview-hero img{width:100%;height:100%;object-fit:cover;display:block}.preview-hero span{position:absolute;left:18px;bottom:18px;border-radius:999px;background:rgba(255,255,255,.9);padding:7px 12px;font-size:12px;color:var(--accent);font-weight:900}.preview-body{padding:0 34px 34px}.preview-meta{display:flex;justify-content:center;gap:18px;color:#94a3b8;font-size:12px;font-weight:800}.post-title{text-align:center;font-size:34px;line-height:1.28;letter-spacing:-.055em;margin:22px 0 18px;font-weight:950}.preview-divider{height:9px;border-radius:999px;background:#ffe94d;margin:16px 0 22px}.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.post-chips{justify-content:flex-start;margin-bottom:24px}.badge{display:inline-flex;align-items:center;border-radius:999px;padding:7px 12px;background:#f1f5f9;color:#334155;font-size:13px;font-weight:900}.muted{color:#64748b}.small{font-size:14px}.post-lead{margin:0 0 24px}.post-content{display:grid;gap:18px}.post-content p,.post-content h2,.post-content h3,.post-content .post-image{border-radius:16px;background:#f8fafc;padding:18px;margin:0}.post-content h2{font-size:22px;line-height:1.35;font-weight:900;border-left:5px solid var(--accent)}.post-content h3{font-size:18px}.post-content p{line-height:1.75;font-size:16px}.post-content strong{font-weight:900;color:#020617}.post-content a{color:var(--accent);font-weight:800}.post-content code{border-radius:6px;background:#e2e8f0;padding:2px 6px}.cite{color:#64748b;font-size:.72em}.post-image img{display:block;width:100%;max-height:460px;object-fit:cover;border-radius:14px}.preview-bottom-cta{margin-top:22px;border:2px solid #ffe94d;border-radius:18px;background:#fafaf7;padding:20px;text-align:center;display:grid;gap:14px}.btn{display:inline-flex;align-items:center;justify-content:center;border-radius:14px;padding:12px 18px;text-decoration:none;font-weight:900}.btn.primary{background:var(--accent);color:#fff}.design-comparison .preview-divider{background:repeating-linear-gradient(90deg,var(--accent) 0,var(--accent) 22px,#ffe94d 22px,#ffe94d 36px)}.design-local-guide .preview-divider{border-top:2px dashed rgba(81,50,215,.45);background:transparent;height:16px}.design-checklist .preview-divider{height:auto;padding:8px;border:1px solid #ffe94d;background:#fffacc;color:var(--accent);text-align:center;font-size:10px;font-weight:900;letter-spacing:.16em}.design-checklist .preview-divider::before{content:"CHECK BEFORE RESERVATION"}.design-conversion .preview-top{background:#111827}.design-conversion .preview-divider{background:linear-gradient(90deg,var(--accent),#ffe94d,var(--accent))}.design-conversion .preview-bottom-cta{background:#111827;color:#fff}.design-conversion .preview-bottom-cta .btn.primary{background:#ffe94d;color:#111827}@media(max-width:720px){.post-page{padding:0}.post-preview{border-radius:0}.preview-top{padding:18px;align-items:flex-start;flex-direction:column}.preview-hero{margin:18px}.preview-body{padding:0 22px 28px}.post-title{font-size:29px}.post-content p{font-size:15px}}`;
+*{box-sizing:border-box}body{margin:0;background:transparent;color:#111827;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.post-page{width:100%;padding:0}.preview-phone{width:100%;max-width:none;border:1px solid #e5e7eb;border-radius:24px;overflow:hidden;background:white;box-shadow:0 20px 50px rgba(15,23,42,.14)}.preview-top{background:var(--primary);color:white;padding:16px;display:flex;justify-content:space-between;gap:10px;align-items:center}.preview-top p{margin:2px 0 0;opacity:.85;font-size:12px}.preview-cta{border-radius:12px;background:#ffe94d;color:#111827;padding:9px 12px;font-size:12px;font-weight:900;white-space:nowrap}.preview-hero{margin:18px;aspect-ratio:16/9;border-radius:14px;background:linear-gradient(135deg,#d8e8ff,#f6f0ff 45%,#fff4a7);position:relative;overflow:hidden}.preview-hero img{width:100%;height:100%;object-fit:cover;display:block}.preview-hero span{position:absolute;left:16px;bottom:16px;border-radius:999px;background:rgba(255,255,255,.88);padding:6px 10px;font-size:11px;color:var(--primary);font-weight:900}.preview-body{padding:0 22px 22px}.preview-meta{display:flex;justify-content:center;gap:16px;color:#94a3b8;font-size:11px}.preview-body h4{text-align:center;font-size:clamp(20px,3vw,34px);line-height:1.3;margin:14px 0;font-weight:950;letter-spacing:-.04em}.preview-divider{height:9px;border-radius:999px;background:#ffe94d;margin:14px 0}.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.post-chips{margin-bottom:14px}.badge{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:800;background:#f1f5f9;color:#334155}.muted{color:#64748b}.small{font-size:12px}.generated-blocks{display:grid;gap:12px}.preview-block{border-radius:12px;background:#f8fafc;padding:12px;margin:0;font-size:14px;line-height:1.75}.preview-block p{margin:6px 0 0;color:#64748b}.preview-block strong{font-weight:900;color:#020617}.preview-block a{color:var(--primary);font-weight:800}.preview-block code{border-radius:6px;background:#e2e8f0;padding:2px 6px}.preview-block h2,.preview-block h3{margin:0 0 6px;font-size:16px}.post-image{margin:0;border-radius:14px;overflow:hidden}.post-image img{display:block;width:100%;max-height:520px;object-fit:cover;border-radius:14px}.cite{color:#64748b;font-size:.72em}.preview-bottom-cta{margin-top:18px;border:2px solid #ffe94d;border-radius:16px;background:#fafaf7;padding:16px;text-align:center;display:grid;gap:12px}.btn{display:inline-flex;align-items:center;justify-content:center;border-radius:12px;padding:10px 14px;text-decoration:none;font-weight:900}.btn.primary{background:var(--primary);color:white}.design-comparison .preview-divider{background:repeating-linear-gradient(90deg,var(--primary) 0,var(--primary) 22px,#ffe94d 22px,#ffe94d 36px)}.design-local-guide .preview-divider{border-top:2px dashed rgba(81,50,215,.45);background:transparent;height:16px}.design-checklist .preview-divider{height:auto;padding:8px;border:1px solid #ffe94d;background:#fffacc;color:var(--primary);text-align:center;font-size:10px;font-weight:900;letter-spacing:.16em}.design-checklist .preview-divider::before{content:"CHECK BEFORE RESERVATION"}.design-conversion .preview-top{background:#111827}.design-conversion .preview-divider{background:linear-gradient(90deg,var(--primary),#ffe94d,var(--primary))}.design-conversion .preview-bottom-cta{background:#111827;color:white}.design-conversion .preview-bottom-cta .btn.primary{background:#ffe94d;color:#111827}@media(max-width:720px){.preview-phone{border-radius:0}.preview-top{align-items:flex-start;flex-direction:column}}`;
 }
