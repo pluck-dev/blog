@@ -33,10 +33,15 @@ export default async function CommunityPostPage({ params }: { params: Promise<{ 
   const { slug } = await params;
   const post = await getPost(slug);
   if (!post) notFound();
+  const bodyHtml = stripLeadingH1(post.body_html);
 
   return (
     <DesignLayout designId={post.design_template_id} title={post.title} ctaHref="/contact">
-      <PostRenderer markdown={post.body_markdown} images={post.images ?? {}} />
+      {bodyHtml ? <div dangerouslySetInnerHTML={{ __html: bodyHtml }} /> : <PostRenderer markdown={post.body_markdown} images={post.images ?? {}} />}
     </DesignLayout>
   );
+}
+
+function stripLeadingH1(html: string | null | undefined): string {
+  return String(html || "").trim().replace(/^<h1>[\s\S]*?<\/h1>\s*/i, "");
 }

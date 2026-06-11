@@ -25,6 +25,8 @@ export interface PostListItem {
 
 export interface PostDetail extends PostListItem {
   body_markdown: string;
+  /** API가 렌더링한 HTML. 있으면 마크다운 렌더러 대신 우선 사용한다. */
+  body_html?: string;
   /** 이미지 슬롯 kind → CDN URL (키 미설정 시 빈 객체) */
   images?: Record<string, string>;
 }
@@ -57,8 +59,8 @@ export async function listPosts(params: { limit?: number; offset?: number } = {}
 /** 발행글 상세(본문 포함). 없으면 null. */
 export async function getPost(slug: string): Promise<PostDetail | null> {
   try {
-    const data = await api<{ post: PostDetail }>(`/posts/${encodeURIComponent(slug)}`);
-    return data.post;
+    const data = await api<{ post: PostDetail; body_html?: string }>(`/posts/${encodeURIComponent(slug)}?include_rendered=true`);
+    return { ...data.post, body_html: data.body_html };
   } catch (err) {
     if (err instanceof Error && err.message.includes("404")) return null;
     throw err;

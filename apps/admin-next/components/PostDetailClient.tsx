@@ -6,12 +6,12 @@ import { api } from "@/lib/api";
 import type { DesignTemplateId, PostDetail, Tenant } from "@/lib/types";
 
 const DESIGN_SPECS: Record<DesignTemplateId, { accent: string; soft: string; pageBg: string; topCta: string; bottomCta: string; label: string }> = {
-  editorial: { accent: "#5132d7", soft: "#f2efff", pageBg: "#fbfaf8", topCta: "지금 바로 비교·예약", bottomCta: "상담/예약하러 가기", label: "브랜드 매거진" },
-  comparison: { accent: "#2563eb", soft: "#dbeafe", pageBg: "#f8fafc", topCta: "BEST 한눈에 비교", bottomCta: "내게 맞는 곳 찾기", label: "BEST 비교 블로그" },
-  "local-guide": { accent: "#059669", soft: "#dcfce7", pageBg: "#f0fdf4", topCta: "내 주변에서 찾기", bottomCta: "가까운 곳 예약하기", label: "지역 추천 블로그" },
-  checklist: { accent: "#ca8a04", soft: "#fef3c7", pageBg: "#fefce8", topCta: "체크리스트 저장", bottomCta: "준비 시작하기", label: "체크리스트 블로그" },
-  conversion: { accent: "#111827", soft: "#ede9fe", pageBg: "#f5f3ff", topCta: "비용 상담 신청", bottomCta: "지금 예약하기", label: "예약 전환 블로그" },
-  custom: { accent: "#5132d7", soft: "#f2efff", pageBg: "#fbfaf8", topCta: "자세히 보기", bottomCta: "문의하기", label: "커스텀" },
+  editorial: { accent: "#5132d7", soft: "#f2efff", pageBg: "#ffffff", topCta: "지금 바로 비교·예약", bottomCta: "상담/예약하러 가기", label: "브랜드 매거진" },
+  comparison: { accent: "#2563eb", soft: "#dbeafe", pageBg: "#ffffff", topCta: "BEST 한눈에 비교", bottomCta: "내게 맞는 곳 찾기", label: "BEST 비교 블로그" },
+  "local-guide": { accent: "#059669", soft: "#dcfce7", pageBg: "#ffffff", topCta: "내 주변에서 찾기", bottomCta: "가까운 곳 예약하기", label: "지역 추천 블로그" },
+  checklist: { accent: "#ca8a04", soft: "#fef3c7", pageBg: "#ffffff", topCta: "체크리스트 저장", bottomCta: "준비 시작하기", label: "체크리스트 블로그" },
+  conversion: { accent: "#111827", soft: "#ede9fe", pageBg: "#ffffff", topCta: "비용 상담 신청", bottomCta: "지금 예약하기", label: "예약 전환 블로그" },
+  custom: { accent: "#5132d7", soft: "#f2efff", pageBg: "#ffffff", topCta: "자세히 보기", bottomCta: "문의하기", label: "커스텀" },
 };
 
 export default function PostDetailClient({ domain, postId }: { domain: string; postId: string }) {
@@ -47,15 +47,12 @@ export default function PostDetailClient({ domain, postId }: { domain: string; p
           <div>
             <span>{design.label}</span>
             <h3>{post.title}</h3>
-            {post.meta_description && <p>{post.meta_description}</p>}
           </div>
         </div>
         <div className="preview-body">
           <div className="preview-meta"><span>{formatShortDate(post.generated_at)}</span><span>{designId}</span></div>
-          <h4>{post.title}</h4>
           <div className="preview-divider" />
           <div className="row post-chips">{chips.map((chip) => <span className="badge" key={chip}>{chip}</span>)}</div>
-          {post.meta_description && <p className="muted small post-lead">{post.meta_description}</p>}
           <div className="generated-blocks" dangerouslySetInnerHTML={{ __html: contentHtml }} />
           <section className="preview-bottom-cta"><b>{brand}에서 {design.bottomCta}</b><a className="btn primary" href="#">{design.bottomCta}</a></section>
         </div>
@@ -226,15 +223,12 @@ function renderStandaloneHtml({ post, tenant, domain, designId, bodyHtml }: { po
         <div>
           <span>${escapeHtml(design.label)}</span>
           <h3>${escapeHtml(post.title)}</h3>
-          ${post.meta_description ? `<p>${escapeHtml(post.meta_description)}</p>` : ""}
         </div>
       </div>
       <div class="preview-body">
         <div class="preview-meta"><span>${escapeHtml(formatShortDate(post.generated_at))}</span><span>${escapeHtml(designId)}</span></div>
-        <h4>${escapeHtml(post.title)}</h4>
         <div class="preview-divider"></div>
         <div class="row post-chips">${chips.map((chip) => `<span class="badge">${escapeHtml(chip)}</span>`).join("")}</div>
-        ${post.meta_description ? `<p class="muted small post-lead">${escapeHtml(post.meta_description)}</p>` : ""}
         <div class="generated-blocks">
 ${contentHtml}
         </div>

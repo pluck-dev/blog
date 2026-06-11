@@ -20,12 +20,12 @@ interface DesignSpec {
 }
 
 const SPECS: Record<DesignTemplateId, DesignSpec> = {
-  editorial:    { accent: "#5132d7", pageBg: "#fbfaf8", topCta: "지금 바로 비교·예약", bottomCta: "상담/예약하러 가기" },
-  comparison:   { accent: "#2563eb", pageBg: "#f8fafc", topCta: "BEST 한눈에 비교", bottomCta: "내게 맞는 곳 찾기" },
-  "local-guide":{ accent: "#059669", pageBg: "#f0fdf4", topCta: "내 주변에서 찾기", bottomCta: "가까운 곳 예약하기" },
-  checklist:    { accent: "#ca8a04", pageBg: "#fefce8", topCta: "체크리스트 저장", bottomCta: "준비 시작하기" },
-  conversion:   { accent: "#111827", pageBg: "#f5f3ff", topCta: "비용 상담 신청", bottomCta: "지금 예약하기" },
-  custom:       { accent: "#5132d7", pageBg: "#fbfaf8", topCta: "자세히 보기", bottomCta: "문의하기" },
+  editorial:    { accent: "#5132d7", pageBg: "#ffffff", topCta: "지금 바로 비교·예약", bottomCta: "상담/예약하러 가기" },
+  comparison:   { accent: "#2563eb", pageBg: "#ffffff", topCta: "BEST 한눈에 비교", bottomCta: "내게 맞는 곳 찾기" },
+  "local-guide":{ accent: "#059669", pageBg: "#ffffff", topCta: "내 주변에서 찾기", bottomCta: "가까운 곳 예약하기" },
+  checklist:    { accent: "#ca8a04", pageBg: "#ffffff", topCta: "체크리스트 저장", bottomCta: "준비 시작하기" },
+  conversion:   { accent: "#111827", pageBg: "#ffffff", topCta: "비용 상담 신청", bottomCta: "지금 예약하기" },
+  custom:       { accent: "#5132d7", pageBg: "#ffffff", topCta: "자세히 보기", bottomCta: "문의하기" },
 };
 
 export function resolveDesign(id: string | null | undefined): DesignTemplateId {

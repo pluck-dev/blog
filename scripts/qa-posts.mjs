@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -237,8 +237,24 @@ function stripTags(html) {
 const reports = rows.map((row) => ({ row, ...issuesFor(row) }));
 const bad = reports.filter((r) => r.issues.length);
 const outputHtmlArtifacts = findOutputHtmlArtifacts(process.cwd());
-console.log(JSON.stringify({ checked: rows.length, failed: bad.length, outputHtmlArtifacts, failures: bad.map((r) => ({ id: r.row.id, slot_id: r.row.slot_id, status: r.row.status, chars: r.chars, h2: r.h2, h3: r.h3, tableRows: r.tableRows, listItems: r.listItems, paragraphs: r.paragraphs, faqQuestions: r.faqQuestions, images: r.imageCount, imageTokens: r.imageTokens, design_template_id: r.row.design_template_id, title: r.row.title, issues: r.issues })) }, null, 2));
-if (bad.length || outputHtmlArtifacts.length) process.exit(1);
+const detailTemplateIssues = detailTemplateQualityIssues();
+console.log(JSON.stringify({ checked: rows.length, failed: bad.length, outputHtmlArtifacts, detailTemplateIssues, failures: bad.map((r) => ({ id: r.row.id, slot_id: r.row.slot_id, status: r.row.status, chars: r.chars, h2: r.h2, h3: r.h3, tableRows: r.tableRows, listItems: r.listItems, paragraphs: r.paragraphs, faqQuestions: r.faqQuestions, images: r.imageCount, imageTokens: r.imageTokens, design_template_id: r.row.design_template_id, title: r.row.title, issues: r.issues })) }, null, 2));
+if (bad.length || outputHtmlArtifacts.length || detailTemplateIssues.length) process.exit(1);
+
+function detailTemplateQualityIssues() {
+  const issues = [];
+  let source = '';
+  try {
+    source = readFileSync('apps/admin-next/components/PostDetailClient.tsx', 'utf8');
+  } catch (error) {
+    return [`detail_template_unreadable:${error.message}`];
+  }
+  if (/<h4>\{post\.title\}<\/h4>/.test(source)) issues.push('detail_duplicate_title_after_hero');
+  if (/className="[^"]*post-lead[^"]*"/.test(source) || /class="[^"]*post-lead[^"]*"/.test(source)) issues.push('detail_duplicate_meta_description_after_hero');
+  if (/preview-hero[\s\S]{0,800}post\.meta_description/.test(source)) issues.push('detail_duplicate_meta_description_in_hero');
+  if (/pageBg:\s*"#(?!fff(?:fff)?")/i.test(source)) issues.push('detail_article_background_not_white');
+  return issues;
+}
 
 function findOutputHtmlArtifacts(root) {
   const found = [];

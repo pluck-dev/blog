@@ -27,11 +27,11 @@
 .post-body sup.cite { color: var(--accent); font-weight: 700; font-size: 11px; margin-left: 1px; }
 .post-body .references-title ~ ol { font-size: 13px; color: #71717a; }
 
-.md-table { margin: 28px 0; overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 12px; }
-.md-table table { width: 100%; border-collapse: collapse; font-size: 15px; }
-.md-table th, .md-table td { border-top: 1px solid #eee; border-left: 1px solid #f1f1f1; padding: 11px 13px; text-align: left; }
-.md-table th { background: #faf9ff; font-weight: 800; }
-.md-table tr:nth-child(even) td { background: #fcfcfd; }
+.md-table, .post-table-wrap { margin: 28px 0; overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 12px; }
+.md-table table, .post-table-wrap table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.md-table th, .md-table td, .post-table-wrap th, .post-table-wrap td { border-top: 1px solid #eee; border-left: 1px solid #f1f1f1; padding: 11px 13px; text-align: left; }
+.md-table th, .post-table-wrap th { background: #faf9ff; font-weight: 800; }
+.md-table tr:nth-child(even) td, .post-table-wrap tr:nth-child(even) td { background: #fcfcfd; }
 
 .post-image img { width: 100%; border-radius: 14px; }
 .image-slot { display: flex; align-items: center; justify-content: center; min-height: 120px; border: 1px dashed #d4d4d8; background: #fafafa; border-radius: 14px; color: #a1a1aa; font-size: 13px; margin: 28px 0; }
