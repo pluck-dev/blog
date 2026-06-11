@@ -141,13 +141,13 @@ function toPreviewBlocks(html: string): string {
 }
 function isMarkdownList(raw: string): boolean {
   const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  return lines.length >= 2 && lines.every((line) => /^[-*]\s+/.test(line) || /^\d+[.)]\s+/.test(line));
+  return lines.length >= 2 && lines.every((line) => /^[-*]\s+/.test(line) || /^\d+[.)]\s+/.test(line) || /^[✅✔✓]\s*/.test(line));
 }
 function renderMarkdownList(raw: string): string {
   const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const ordered = lines.every((line) => /^\d+[.)]\s+/.test(line));
   const tag = ordered ? "ol" : "ul";
-  const items = lines.map((line) => line.replace(/^[-*]\s+/, "").replace(/^\d+[.)]\s+/, ""));
+  const items = lines.map((line) => line.replace(/^[-*]\s+/, "").replace(/^\d+[.)]\s+/, "").replace(/^[✅✔✓]\s*/, ""));
   return `<${tag}>${items.map((item) => `<li>${renderInline(item)}</li>`).join("")}</${tag}>`;
 }
 function isMarkdownTable(raw: string): boolean {

@@ -314,19 +314,24 @@ function stripPseudoSlotsForRender(markdown: string): string {
 function ensureImageSlotsForRender(markdown: string, images: Record<string, string>): string {
   const keys = Object.keys(images).sort((a, b) => a.localeCompare(b));
   if (!keys.length || /\[IMAGE:[A-Za-z0-9_-]+\]/.test(markdown)) return markdown;
-  const bodyKeys = keys.length > 2 ? keys.slice(2, 4) : [];
-  if (!bodyKeys.length) return markdown;
+  const insertions = keys.slice(0, Math.min(3, keys.length)).map((key) => `[IMAGE:${key}]`);
   const blocks = markdown.split(/\n{2,}/);
-  if (blocks.length <= 2) return `${markdown}\n\n[IMAGE:${bodyKeys[0]!}]`.trim();
-  blocks.splice(Math.min(2, blocks.length), 0, `[IMAGE:${bodyKeys[0]!}]`);
-  if (bodyKeys[1]) blocks.splice(Math.max(4, Math.floor(blocks.length * 0.6)), 0, `[IMAGE:${bodyKeys[1]}]`);
+  if (blocks.length <= 2) return `${markdown}\n\n${insertions.join("\n\n")}`.trim();
+  blocks.splice(Math.min(3, blocks.length), 0, insertions[0]!);
+  if (insertions[1]) blocks.splice(Math.max(5, Math.floor(blocks.length * 0.55)), 0, insertions[1]);
+  if (insertions[2]) blocks.splice(Math.max(7, Math.floor(blocks.length * 0.75)), 0, insertions[2]);
   return blocks.join("\n\n").trim();
 }
 function fallbackImagesForPost(db: DbService, tenant: string, post: Row): Record<string, string> {
   const slot = post.slot_id ? db.getSlot(post.slot_id) : null;
   if (!slot?.region) return {};
   const images: Record<string, string> = {};
-  for (const [i, academy] of db.listAcademies(tenant, { region: String(slot.region), limit: 5 }).entries()) {
+  const region = String(slot.region);
+  let academies = db.listAcademies(tenant, { region, limit: 5 });
+  if (!academies.length) {
+    academies = db.listAcademies(tenant, { limit: 5000 }).filter((academy) => String(academy.region || "") === region || String(academy.address || "").includes(region)).slice(0, 5);
+  }
+  for (const [i, academy] of academies.entries()) {
     const url = firstAcademyImageUrl(academy);
     if (url) images[`academy_${i + 1}`] = url;
   }
@@ -342,13 +347,13 @@ function firstAcademyImageUrl(row: Row): string {
 }
 function isMarkdownList(raw: string): boolean {
   const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  return lines.length >= 2 && lines.every((line) => /^[-*]\s+/.test(line) || /^\d+[.)]\s+/.test(line));
+  return lines.length >= 2 && lines.every((line) => /^[-*]\s+/.test(line) || /^\d+[.)]\s+/.test(line) || /^[✅✔✓]\s*/.test(line));
 }
 function renderMarkdownList(raw: string): string {
   const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const ordered = lines.every((line) => /^\d+[.)]\s+/.test(line));
   const tag = ordered ? "ol" : "ul";
-  const items = lines.map((line) => line.replace(/^[-*]\s+/, "").replace(/^\d+[.)]\s+/, ""));
+  const items = lines.map((line) => line.replace(/^[-*]\s+/, "").replace(/^\d+[.)]\s+/, "").replace(/^[✅✔✓]\s*/, ""));
   return `<${tag}>${items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</${tag}>`;
 }
 function isMarkdownTable(raw: string): boolean {

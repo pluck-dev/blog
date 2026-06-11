@@ -58,20 +58,42 @@ export class WorkerService {
         const facts = this.buildFacts(tenant, slot);
         const images = { ...this.imagesForSlot(tenant, slot), ...facts.images };
         const prompt = buildPrompt(tenantMeta, slot, facts.text, designTemplateId);
-        const result = await runLlm(prompt, { provider: payload.provider || "claude", model: payload.model || "", timeoutSec: Number(payload.timeout_sec || 600) });
+        const llmOpts = { provider: payload.provider || "claude", model: payload.model || "", timeoutSec: Number(payload.timeout_sec || 600) };
+        const result = await runLlm(prompt, llmOpts);
         if (!result.ok || !result.summary.trim()) throw new Error(result.error || "empty summary");
-        const markdown = ensureImageSlots(stripPseudoSlots(stripPreamble(result.summary)), images);
+        let markdown = normalizeGeneratedMarkdown(result.summary, images);
+        let qualityIssues = articleQualityIssues(markdown, facts.text, images);
+        let durationSec = result.duration_sec;
+        let costUsd = result.cost_usd || 0;
+        let inputTokens = result.input_tokens || 0;
+        let outputTokens = result.output_tokens || 0;
+        let sessionId = result.session_id;
+        let model = result.model;
+        if (qualityIssues.length) {
+          const repair = await runLlm(buildRepairPrompt(tenantMeta, slot, facts.text, designTemplateId, markdown, qualityIssues), llmOpts);
+          durationSec += repair.duration_sec;
+          costUsd += repair.cost_usd || 0;
+          inputTokens += repair.input_tokens || 0;
+          outputTokens += repair.output_tokens || 0;
+          sessionId = repair.session_id || sessionId;
+          model = repair.model || model;
+          if (repair.ok && repair.summary.trim()) {
+            markdown = normalizeGeneratedMarkdown(repair.summary, images);
+            qualityIssues = articleQualityIssues(markdown, facts.text, images);
+          }
+        }
+        if (qualityIssues.length) throw new Error(`generated article quality gate failed: ${qualityIssues.join(", ")}`);
         const title = extractTitle(markdown, slot.primary_keyword);
         const slug = this.db.uniqueSlug(tenant, slugify(title), sid);
         this.db.insertPost({
           tenant, slot_id: sid, slug, title, body_markdown: markdown,
           meta_description: metaDescription(markdown), images: Object.keys(images).length ? JSON.stringify(images) : null, design_template_id: designTemplateId,
-          provider: result.provider, model: result.model, session_id: result.session_id, cost_usd: result.cost_usd || 0,
-          duration_sec: result.duration_sec, input_tokens: result.input_tokens || 0, output_tokens: result.output_tokens || 0
+          provider: result.provider, model, session_id: sessionId, cost_usd: costUsd,
+          duration_sec: durationSec, input_tokens: inputTokens, output_tokens: outputTokens
         });
         this.db.updateSlotStatus(sid, "published");
         publishHtml(slug, markdown);
-        ok++; per_slot.push({ slot_id: sid, ok: true, duration_sec: result.duration_sec, chars: markdown.length, model: result.model });
+        ok++; per_slot.push({ slot_id: sid, ok: true, duration_sec: durationSec, chars: markdown.length, model });
       } catch (error: any) {
         const message = error?.message || String(error);
         this.db.updateSlotStatus(sid, "failed", message);
@@ -253,6 +275,90 @@ function firstImageKey(row: Row, index: number): { key: string; url: string } {
   const photos = safeJson(row.photos, []);
   const url = Array.isArray(photos) ? String(photos[0] || "").trim() : "";
   return { key: `academy_${index}`, url: url || String(row.thumb_url || "").trim() };
+}
+
+
+function normalizeGeneratedMarkdown(summary: string, images: Record<string, string>): string {
+  return ensureImageSlots(
+    stripPseudoSlots(
+      stripPreamble(summary)
+        .replace(/^```(?:markdown|md)?\s*/i, "")
+        .replace(/```\s*$/i, "")
+        .replace(/\[(\d+)\]/g, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim()
+    ),
+    images
+  );
+}
+
+function articleQualityIssues(markdown: string, facts: string, images: Record<string, string>): string[] {
+  const issues: string[] = [];
+  const chars = markdown.trim().length;
+  const candidateCount = candidateCountFromFacts(facts);
+  const h2Count = (markdown.match(/^##\s+/gm) || []).length;
+  const imageKeys = Object.keys(images);
+  const usedImageKeys = Array.from(markdown.matchAll(/\[IMAGE:([A-Za-z0-9_-]+)\]/g)).map((m) => m[1]!);
+  if (!markdown.trim().startsWith("# ")) issues.push("missing_h1_title");
+  if (chars < 2600) issues.push(`too_short_${chars}`);
+  if (chars > 5000) issues.push(`too_long_${chars}`);
+  if (h2Count < 6) issues.push(`not_enough_h2_${h2Count}`);
+  if (candidateCount >= 2 && !isAnyMarkdownTable(markdown)) issues.push("missing_comparison_table");
+  if (!/(^|\n)\s*(?:[-*]\s+|\d+[.)]\s+|✅)/m.test(markdown)) issues.push("missing_checklist_or_list");
+  if (!/(FAQ|자주 묻는 질문|질문과 답변)/i.test(markdown)) issues.push("missing_faq_section");
+  if (/\[(?:TABLE|CTA|FAQ|QUOTE|IMAGE)_SLOT:/i.test(markdown)) issues.push("contains_pseudo_slot");
+  if (/\[\d+\]/.test(markdown)) issues.push("contains_visible_citations");
+  if (/(검증된 자료|API 자료|제공된 자료|후기 필드|직접 매칭 후보 수)/.test(markdown)) issues.push("exposes_internal_fact_language");
+  if (imageKeys.length && usedImageKeys.length === 0) issues.push("missing_available_image_slot");
+  const unknown = usedImageKeys.filter((key) => !imageKeys.includes(key));
+  if (unknown.length) issues.push(`unknown_image_slots_${Array.from(new Set(unknown)).join("_")}`);
+  return issues;
+}
+
+function candidateCountFromFacts(facts: string): number {
+  const direct = facts.match(/직접 매칭 후보 수:\s*(\d+)/);
+  if (direct) return Number(direct[1]);
+  return (facts.match(/^\[\d+\]/gm) || []).length;
+}
+
+function isAnyMarkdownTable(markdown: string): boolean {
+  return markdown.split(/\n{2,}/).some((block) => {
+    const lines = block.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    return lines.length >= 3 && lines[0]!.includes("|") && /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(lines[1]!);
+  });
+}
+
+function buildRepairPrompt(tenant: Row, slot: Row, facts: string, designTemplateId: string, markdown: string, issues: string[]): string {
+  return `아래 Markdown 글은 품질 게이트를 통과하지 못했다. 검증된 자료만 사용해서 같은 주제의 완성형 글로 다시 작성하라.
+
+테넌트: ${tenant.display_name || tenant.domain}
+디자인 템플릿: ${designTemplateId}
+디자인 작성 지침: ${designWritingGuide(designTemplateId)}
+주 키워드: ${slot.primary_keyword}
+지역: ${slot.region || ""}
+페르소나: ${slot.persona || ""}
+의도: ${slot.intent || ""}
+수식어: ${[slot.modifier_1, slot.modifier_2].filter(Boolean).join(", ")}
+
+실패 사유:
+${issues.map((issue) => `- ${issue}`).join("\n")}
+
+검증된 자료:
+${facts || "없음"}
+
+재작성 규칙:
+- 제목/지역/후보 학원/이미지는 검증된 자료와 반드시 일치시킨다.
+- 후보 수보다 큰 숫자, 다른 지역 후보, 없는 가격·합격률·셔틀·후기·3일 합격 주장을 만들지 않는다.
+- 첫 줄은 '# ' 제목, H2 6개 이상, 3,000~5,000자 이내.
+- 후보가 2곳 이상이면 Markdown 비교표 1개를 포함한다.
+- 체크리스트와 FAQ 3~5개를 포함한다.
+- 사용 가능한 이미지 슬롯이 있으면 실제 키만 [IMAGE:academy_1] 형식으로 본문 흐름에 배치한다.
+- [1], [2] 같은 출처번호와 내부 표현(검증된 자료, API 자료, 후보 수 등)은 노출하지 않는다.
+- 원문보다 더 자연스럽고 풍성한 운전선생 블로그 톤으로 작성한다.
+- 출력은 수정된 Markdown 본문만 제공한다.
+
+기존 Markdown:
+${markdown}`;
 }
 
 function buildPrompt(tenant: Row, slot: Row, facts: string, designTemplateId: string): string {
