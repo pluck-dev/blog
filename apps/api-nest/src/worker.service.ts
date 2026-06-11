@@ -84,9 +84,10 @@ export class WorkerService {
 
   private buildFacts(tenant: string, slot: Row): GenerationFacts {
     if (!slot.region) return { text: "", images: {} };
-    const academies = this.pickAcademiesForRegion(tenant, String(slot.region), 5);
+    const region = String(slot.region);
+    const academies = this.pickAcademiesForRegion(tenant, region, 5);
     const images: Record<string, string> = {};
-    const text = academies.map((a, i) => {
+    const body = academies.map((a, i) => {
       const imageKey = firstImageKey(a, i + 1);
       if (imageKey.url) images[imageKey.key] = imageKey.url;
       const parts = [`[${i + 1}] ${a.name}`];
@@ -97,7 +98,14 @@ export class WorkerService {
       const src = [a.source_name, a.source_url].filter(Boolean).join(" "); if (src) parts.push(`(출처: ${src})`);
       return parts.join(" / ");
     }).join("\n");
-    return { text, images };
+    const header = [
+      `직접 매칭 기준 지역: ${region}`,
+      `직접 매칭 후보 수: ${academies.length}`,
+      `사용 가능한 이미지 슬롯: ${Object.keys(images).length ? Object.keys(images).map((key) => `[IMAGE:${key}]`).join(", ") : "없음"}`,
+      `후기 필드가 있는 후보 수: ${academies.filter((a) => a.review).length}`,
+      `주의: 후보 수와 자료 필드 밖의 학원명·가격·합격률·셔틀·후기는 생성 금지`,
+    ].join("\n");
+    return { text: [header, body].filter(Boolean).join("\n\n"), images };
   }
 
   private imagesForSlot(tenant: string, slot: Row): Record<string, string> {
@@ -112,36 +120,27 @@ export class WorkerService {
 
   private pickAcademiesForRegion(tenant: string, region: string, limit: number): Row[] {
     const exact = this.db.listAcademies(tenant, { region, limit });
-    if (exact.length >= limit) return exact;
-    const regionMeta = this.db.getSeoRegion(tenant, region);
-    const lat = Number(regionMeta?.latitude);
-    const lng = Number(regionMeta?.longitude);
-    const hasPoint = Number.isFinite(lat) && Number.isFinite(lng);
+    if (exact.length) return exact.slice(0, limit);
     const all = this.db.listAcademies(tenant, { limit: 5000 });
-    const scored = all.map((a) => {
+    const directMatches = all.map((a) => {
       const addr = String(a.address || "");
       const rowRegion = String(a.region || "");
       let score = Number.POSITIVE_INFINITY;
       if (rowRegion === region) score = 0;
       else if (addr.includes(region)) score = 1;
-      else if (rowRegion && (region.includes(rowRegion) || rowRegion.includes(region))) score = 2;
-      else if (sharesRegionToken(region, addr) || sharesRegionToken(region, rowRegion)) score = 5;
-      if (hasPoint && Number.isFinite(Number(a.latitude)) && Number.isFinite(Number(a.longitude))) {
-        const km = haversineKm(lat, lng, Number(a.latitude), Number(a.longitude));
-        score = Math.min(score, 10 + km);
-      }
       return { academy: a, score };
     }).filter((r) => Number.isFinite(r.score));
     const seen = new Set<string>();
-    const merged = [...exact.map((academy) => ({ academy, score: 0 })), ...scored]
+    return directMatches
       .sort((a, b) => a.score - b.score || String(a.academy.name).localeCompare(String(b.academy.name), "ko"))
       .filter((r) => {
         const key = String(r.academy.external_id || r.academy.id || r.academy.name);
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
-      });
-    return merged.slice(0, limit).map((r) => r.academy);
+      })
+      .slice(0, limit)
+      .map((r) => r.academy);
   }
 
   private processDedup(tenant: string, payload: Row): Row {
@@ -256,23 +255,8 @@ function firstImageKey(row: Row, index: number): { key: string; url: string } {
   return { key: `academy_${index}`, url: url || String(row.thumb_url || "").trim() };
 }
 
-function sharesRegionToken(region: string, text: string): boolean {
-  if (!region || !text) return false;
-  const tokens = region.split(/\s+/).filter((t) => t.length >= 2);
-  return tokens.some((token) => text.includes(token));
-}
-
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371;
-  const dLat = deg2rad(lat2 - lat1);
-  const dLon = deg2rad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-function deg2rad(value: number): number { return value * Math.PI / 180; }
-
 function buildPrompt(tenant: Row, slot: Row, facts: string, designTemplateId: string): string {
-  return `너는 한국어 SEO 콘텐츠 에디터다. 아래 슬롯에 맞춰 바로 발행 가능한 Markdown 글을 작성하라.
+  return `너는 운전선생 블로그를 쓰는 한국어 SEO 에디터다. 아래 슬롯과 검증된 자료만 사용해, 실제 서비스 상세 페이지와 HTML 다운로드에서 바로 읽히는 완성형 Markdown 글을 작성하라.
 
 테넌트: ${tenant.display_name || tenant.domain}
 업종: ${tenant.vertical || "general"}
@@ -288,34 +272,41 @@ function buildPrompt(tenant: Row, slot: Row, facts: string, designTemplateId: st
 검증된 자료:
 ${facts || "없음"}
 
-필수 출력 구조:
-- 첫 줄은 '# ' H1 제목
-- 본문에는 '## ' H2 섹션을 최소 6개 이상 사용
-- 도입 → 지역/상황 고민 → 선택 기준 → 학원 후보별 설명 → 비교표 → 체크리스트 → FAQ → 마무리 CTA 순서로 구성
-- 각 H2 섹션은 제목만 던지지 말고, 2~3개의 자연스러운 문단 또는 목록/표/인용을 함께 배치
-- 문단을 한 줄씩 끊지 말고 같은 주제의 설명은 이어지는 단락으로 구성
-- 레퍼런스형 블로그처럼 섹션 안에서 설명이 자연스럽게 이어져야 하며, 문단마다 독립 카드처럼 짧게 끊지 말 것
-- 제공된 학원이 3곳 이상이면 최소 3곳을 각각 별도 문단으로 자세히 설명
-- 각 학원 문단에는 가능한 경우 학원명, 주소, 대표전화(vphone 우선), 운영 과정/유형, 어떤 사람에게 맞는지를 포함
-- 이미지가 제공된 학원은 해당 학원 설명 직후 [IMAGE:academy_1] 같은 이미지 슬롯을 1~3개 자연스럽게 배치
-- 허용된 이미지 슬롯은 [IMAGE:academy_1]처럼 검증된 자료에 실제로 있는 키만 사용
-- [IMAGE_SLOT: ...], [TABLE_SLOT: ...], [CTA_SLOT: ...] 같은 임의 플레이스홀더는 절대 쓰지 말 것
-- 글 중간에 Markdown 표 1개를 반드시 포함. 표는 학원 후보 비교 또는 선택 기준 비교로 작성
-- 표 형식은 반드시 | 항목 | 후보 A | 후보 B | 후보 C | 형태의 정상 Markdown 표로 작성
-- 표는 4~5개 행으로 후보별 위치/과정/추천 대상/확인할 점을 비교
-- 체크리스트 섹션은 불릿 목록으로 작성하고, FAQ 섹션은 질문/답변 3~5개로 작성
-- 실제 후기나 상담 상황을 설명하는 짧은 인용문을 1개 포함. 단, 제공 자료에 없는 후기를 실제 후기처럼 단정하지 말 것
+절대 원칙:
+- API 자료는 글 재료일 뿐이다. 주 키워드/지역/제목과 직접 맞는 학원만 본문 후보·표·사진·CTA에 사용한다.
+- 다른 시·군·구, 다른 생활권, 주변 지역 학원은 후보로 섞지 말 것. 후보가 부족하면 부족한 그대로 설명한다.
+- 검증된 자료에 없는 학원명·사진·주소·전화번호·가격·셔틀·합격률·3일 합격·지역화폐·후기는 절대 생성하지 말 것.
+- 제공된 후보 수보다 큰 숫자를 제목/본문에 쓰지 말 것. 예: 후보가 2곳이면 '3곳', 'BEST5' 금지.
+- 출처번호 [1], [2]를 본문에 노출하지 말 것. 근거는 문장 안에 자연스럽게 녹인다.
+- Markdown 굵게 표시는 **학원명**처럼 원문 기호가 보이면 안 된다. 굵게가 필요하면 정상 Markdown만 쓰고, 렌더러가 처리 가능한 문장으로 작성한다.
 
-품질 요구사항:
-- 2,400자 이상, 5,000자 이내로 작성
-- 실제 독자가 바로 도움받는 구체적인 문장
-- 근거 자료가 있으면 번호 출처 [1] 형태로 본문에 표시
-- 제공된 학원명/주소/전화/SEO 설명/사진만 사실 자료로 사용하고 없는 사실은 추측하지 말 것
-- 전화번호는 대표전화(vphone)가 있으면 vphone을 우선 사용하고, 없을 때만 일반 전화(phone)를 사용할 것
-- SEO 키워드는 참고용으로만 사용하고 본문에 키워드를 부자연스럽게 나열하지 말 것
-- 과장/허위 금지
-- 마지막 H2 섹션은 상담/문의 전환 CTA로 마무리
-- 5,000자를 넘기지 말고, 표/목록/FAQ를 포함해도 전체 분량 제한을 지킬 것`;
+레퍼런스 품질 기준:
+- 딱딱한 데이터 나열이 아니라 운전선생 블로그처럼 자연스럽게 시작한다. 예: "바쁜 일정 때문에 면허 준비를 미루고 있다면..."처럼 독자 상황을 먼저 짚는다.
+- 각 섹션은 제목만 던지지 말고 2~4문장 이상의 이어지는 단락으로 구성한다. 한 문장짜리 카드가 여러 개 끊기는 느낌을 피한다.
+- 후보 설명은 단순 주소 나열이 아니라 "어떤 생활권/상황의 사람에게 맞는지", "상담 때 무엇을 확인해야 하는지"까지 연결한다.
+- 표, 체크리스트, FAQ, 이미지가 글 흐름 안에 자연스럽게 들어가야 한다.
+- 자료에 리뷰가 있으면 짧은 인용문 1개를 쓸 수 있다. 리뷰가 없으면 실제 후기처럼 꾸며 쓰지 말고 상담 확인 팁으로 대체한다.
+
+필수 출력 구조:
+- 첫 줄은 '# ' H1 제목. 제목은 주 키워드/지역/직접 매칭 후보 수와 모순되면 안 된다.
+- H2 섹션을 6개 이상 사용한다.
+- 권장 흐름: 도입 → 이 지역에서 먼저 볼 기준 → 직접 확인 가능한 학원 후보 → 비교표/요약 → 상담 전 체크리스트 → FAQ → 상담/예약 CTA.
+- 제공된 학원이 2곳 이상이면 Markdown 표 1개를 반드시 포함한다. 후보가 1곳이면 표 대신 체크리스트형 요약 박스로 대체한다.
+- 표는 정상 Markdown 표로 작성한다. 예: | 비교 항목 | 후보 A | 후보 B | 형태.
+- 후보별 설명에는 가능한 경우 학원명, 주소, 대표전화(vphone 우선), 운영 과정/유형, 추천 대상, 상담 시 확인할 점을 포함한다.
+- 이미지가 제공된 학원은 해당 학원 설명 직후 [IMAGE:academy_1] 같은 실제 이미지 슬롯을 1~3개 배치한다.
+- 허용된 이미지 슬롯은 검증된 자료의 "사용 가능한 이미지 슬롯"에 있는 키만 사용한다.
+- [IMAGE_SLOT: ...], [TABLE_SLOT: ...], [CTA_SLOT: ...], [QUOTE_SLOT: ...] 같은 임의 플레이스홀더는 절대 쓰지 말 것.
+- 체크리스트 섹션은 ✅ 불릿 목록으로 작성한다.
+- FAQ는 질문/답변 3~5개로 작성한다.
+- 마지막 H2 섹션은 운전선생에서 비교·상담·예약으로 이어지는 자연스러운 CTA로 마무리한다.
+
+문체/분량:
+- 3,000자 이상, 5,000자 이내. 5,000자를 절대 넘기지 말 것.
+- 독자가 바로 도움받을 수 있게 구체적으로 쓰되, 확인되지 않은 장점은 "상담 때 확인"으로 표현한다.
+- SEO 키워드는 참고용으로만 사용하고 부자연스럽게 반복하지 말 것.
+- 주 키워드와 맞지 않는 내용으로 글 방향을 틀지 말 것.
+- 출력은 Markdown 본문만 제공하고 설명/주석은 쓰지 말 것.`;
 }
 function designWritingGuide(designTemplateId: string): string {
   const guides: Record<string, string> = {
@@ -335,15 +326,15 @@ function stripPseudoSlots(md: string) { return md.split(/\r?\n/).filter((line) =
 function ensureImageSlots(md: string, images: Record<string, string>) {
   const keys = Object.keys(images).sort((a, b) => a.localeCompare(b));
   if (!keys.length || /\[IMAGE:[A-Za-z0-9_-]+\]/.test(md)) return md;
-  const insertions = (keys.length > 2 ? keys.slice(2, 4) : []).map((key) => `[IMAGE:${key}]`);
-  if (!insertions.length) return md;
+  const insertions = keys.slice(0, Math.min(3, keys.length)).map((key) => `[IMAGE:${key}]`);
   const blocks = md.split(/\n{2,}/);
   if (blocks.length <= 2) return `${md}\n\n${insertions.join("\n\n")}`.trim();
-  blocks.splice(Math.min(2, blocks.length), 0, insertions[0]!);
-  if (insertions[1]) blocks.splice(Math.max(4, Math.floor(blocks.length * 0.6)), 0, insertions[1]);
+  blocks.splice(Math.min(3, blocks.length), 0, insertions[0]!);
+  if (insertions[1]) blocks.splice(Math.max(5, Math.floor(blocks.length * 0.55)), 0, insertions[1]);
+  if (insertions[2]) blocks.splice(Math.max(7, Math.floor(blocks.length * 0.75)), 0, insertions[2]);
   return blocks.join("\n\n").trim();
 }
-function metaDescription(md: string) { for (const raw of md.split(/\r?\n/)) { const s = raw.trim(); if (s && !s.startsWith("#") && !s.startsWith(">") && !s.startsWith("|")) return s.replace(/[\*_`#]/g, "").slice(0, 155); } return ""; }
+function metaDescription(md: string) { for (const raw of md.split(/\r?\n/)) { const s = raw.trim(); if (s && !s.startsWith("#") && !s.startsWith(">") && !s.startsWith("|") && !/^\[IMAGE:[A-Za-z0-9_-]+\]$/.test(s)) return s.replace(/[\*_`#]/g, "").slice(0, 155); } return ""; }
 function publishHtml(slug: string, md: string) { const dir = resolve(process.cwd(), "output"); mkdirSync(dir, { recursive: true }); writeFileSync(resolve(dir, `${slug}.html`), `<article><pre>${escapeHtml(md)}</pre></article>`, "utf8"); }
 function jaccard(a: string, b: string) { const A = new Set(tokens(a)), B = new Set(tokens(b)); if (!A.size || !B.size) return 0; let inter = 0; for (const t of A) if (B.has(t)) inter++; return inter / (A.size + B.size - inter); }
 function tokens(s: string) { return s.toLowerCase().replace(/[^\w가-힣\s]/g, " ").split(/\s+/).filter((t) => t.length > 1); }
