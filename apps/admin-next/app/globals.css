@@ -143,9 +143,37 @@ tr:hover td { background: #fbfdff; }
 .preview-phone-fluid .generated-blocks { display: grid; gap: 12px; }
 .preview-phone-fluid .generated-blocks .preview-block { margin-top: 0; font-size: 14px; line-height: 1.75; }
 .preview-phone-fluid .generated-blocks .preview-block p { margin: 6px 0 0; color: #64748b; }
-.preview-phone-fluid .generated-blocks ul,
-.preview-phone-fluid .generated-blocks ol { margin: 8px 0 0; padding-left: 20px; color: #475569; }
-.preview-phone-fluid .generated-blocks li { margin: 4px 0; }
+.preview-phone-fluid .generated-blocks ul {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding-left: 0;
+  list-style: none;
+  color: #475569;
+}
+.preview-phone-fluid .generated-blocks ul li {
+  position: relative;
+  margin: 0;
+  padding-left: 24px;
+}
+.preview-phone-fluid .generated-blocks ul li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--primary);
+  font-weight: 900;
+  line-height: inherit;
+}
+.preview-phone-fluid .generated-blocks ol {
+  margin: 10px 0 0;
+  padding-left: 22px;
+  color: #475569;
+}
+.preview-phone-fluid .generated-blocks ol li {
+  margin: 6px 0;
+  padding-left: 2px;
+}
 .preview-phone-fluid .generated-blocks blockquote { margin: 0; border-left: 4px solid #ffe94d; background: #fafaf7; padding: 12px; border-radius: 0 12px 12px 0; color: #475569; }
 .preview-phone-fluid .generated-blocks .preview-block h2,
 .preview-phone-fluid .generated-blocks .preview-block h3 { margin: 0 0 6px; font-size: 16px; line-height: 1.45; }
