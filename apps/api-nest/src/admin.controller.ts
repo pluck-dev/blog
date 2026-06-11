@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Headers, HttpException, HttpStatus, Inject, Param, Patch, Post, Put, Query, Req } from "@nestjs/common";
 import type { Request } from "express";
-import { DbService, jobOut, tenantOut } from "./db.service.js";
+import { DbService, jobOut, safeJson, tenantOut } from "./db.service.js";
 import { DrivingplusApiService, type SeoRegionLevel } from "./drivingplus-api.service.js";
 import { DESIGN_TEMPLATES, PRESETS, TEMPLATE_SPECS, type AxisName } from "./constants.js";
 import { SlotService } from "./slot.service.js";
@@ -152,7 +152,7 @@ export class AdminController {
     checkAuth(req, headers); this.requireTenant(domain);
     const post = this.db.getPost(postId); if (!post || post.tenant !== domain) throw new HttpException("post not found", 404);
     const payload: Row = { post };
-    if (rendered === "true" || rendered === "1") payload.body_html = renderMarkdown(post.body_markdown || "");
+    if (rendered === "true" || rendered === "1") payload.body_html = renderMarkdown(post.body_markdown || "", safeJson(post.images, {}));
     return payload;
   }
 
@@ -283,9 +283,16 @@ function normalizeSeoRegionLevel(value: any): SeoRegionLevel {
 }
 function nullableNumber(value: any): number | null { if (value === "" || value === null || value === undefined) return null; const n = Number(value); return Number.isFinite(n) ? n : null; }
 function isServiceAccount(text: string): boolean { try { const o = JSON.parse(text); return Boolean(o.client_email && o.private_key); } catch { return false; } }
-function renderMarkdown(markdown: string): string {
+function renderMarkdown(markdown: string, images: Record<string, string> = {}): string {
   return markdown.split(/\n{2,}/).map((block) => {
-    const s = escapeHtml(block.trim());
+    const raw = block.trim();
+    const imageMatch = raw.match(/^\[IMAGE:([A-Za-z0-9_-]+)\]$/);
+    if (imageMatch) {
+      const key = imageMatch[1]!;
+      const src = images[key];
+      if (src) return `<figure class="post-image"><img src="${escapeAttr(src)}" alt="${escapeAttr(key)}" loading="lazy" /></figure>`;
+    }
+    const s = escapeHtml(raw);
     if (!s) return "";
     if (s.startsWith("# ")) return `<h1>${s.slice(2)}</h1>`;
     if (s.startsWith("## ")) return `<h2>${s.slice(3)}</h2>`;
@@ -294,3 +301,4 @@ function renderMarkdown(markdown: string): string {
   }).join("\n");
 }
 function escapeHtml(s: string): string { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] || c)); }
+function escapeAttr(s: string): string { return escapeHtml(s).replace(/'/g, "&#39;"); }

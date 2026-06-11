@@ -26,11 +26,31 @@ export default function PostDetailClient({ domain, postId }: { domain: string; p
   return <div>
     <div className="page-head"><div><Link href={`/t/${encodeURIComponent(domain)}`} className="eyebrow">← {domain}</Link><h1>{post.title}</h1><p className="muted mono">{post.slug}</p></div><div className="row"><button className="btn" onClick={() => navigator.clipboard.writeText(post.body_markdown)}>Markdown 복사</button><button className="btn" onClick={() => download(`${post.slug}.md`, post.body_markdown, "text/markdown")}>Markdown 다운로드</button>{html && <button className="btn primary" onClick={() => download(`${post.slug}.html`, html, "text/html")}>HTML 다운로드</button>}</div></div>
     <div className="grid grid-2" style={{ alignItems: "start" }}>
-      <article className="post-preview"><div className="preview-top"><b>{tenant?.display_name ?? domain}</b><span className="badge" style={{ background: "#ffe94d", color: "#111" }}>{post.design_template_id ?? tenant?.design_template_id ?? "editorial"}</span></div><div className="post-body" dangerouslySetInnerHTML={{ __html: html || fallbackMarkdown(post.body_markdown) }} /></article>
+      <article className="post-preview"><div className="preview-top"><b>{tenant?.display_name ?? domain}</b><span className="badge" style={{ background: "#ffe94d", color: "#111" }}>{post.design_template_id ?? tenant?.design_template_id ?? "editorial"}</span></div><div className="post-body" dangerouslySetInnerHTML={{ __html: html || fallbackMarkdown(post.body_markdown, parseImages(post.images)) }} /></article>
       <aside className="grid"><div className="card card-pad"><h2>메타</h2><p><b>상태:</b> {post.status}</p><p><b>provider:</b> {post.provider ?? "-"} {post.model ?? ""}</p><p><b>비용:</b> {post.cost_usd ? `$${post.cost_usd.toFixed(3)}` : "-"}</p><p><b>생성:</b> {post.generated_at}</p><p className="muted">{post.meta_description}</p></div><div><h2>Markdown 원문</h2><pre className="codebox small">{post.body_markdown}</pre></div></aside>
     </div>
   </div>;
 }
 function download(name: string, text: string, type: string) { const url = URL.createObjectURL(new Blob([text], { type })); const a = document.createElement("a"); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url); }
-function fallbackMarkdown(md: string) { return md.split(/\n{2,}/).map((p) => `<p>${escapeHtml(p).replace(/\n/g, "<br />")}</p>`).join(""); }
-function escapeHtml(s: string) { return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!)); }
+function fallbackMarkdown(md: string, images: Record<string, string>) {
+  return md.split(/\n{2,}/).map((p) => {
+    const raw = p.trim();
+    const imageMatch = raw.match(/^\[IMAGE:([A-Za-z0-9_-]+)\]$/);
+    if (imageMatch) {
+      const key = imageMatch[1]!;
+      const src = images[key];
+      if (src) return `<figure class="post-image"><img src="${escapeAttr(src)}" alt="${escapeAttr(key)}" loading="lazy" /></figure>`;
+    }
+    return `<p>${escapeHtml(raw).replace(/\n/g, "<br />")}</p>`;
+  }).join("");
+}
+function parseImages(value: PostDetail["images"]): Record<string, string> {
+  if (!value) return {};
+  if (typeof value === "object") return value as Record<string, string>;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch { return {}; }
+}
+function escapeHtml(s: string) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!)); }
+function escapeAttr(s: string) { return escapeHtml(s).replace(/'/g, "&#39;"); }
