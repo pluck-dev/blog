@@ -132,7 +132,6 @@ CREATE TABLE IF NOT EXISTS academies (
   FOREIGN KEY (tenant) REFERENCES tenants(domain) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_academies_tenant_region ON academies(tenant, region);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_academies_tenant_external_id ON academies(tenant, external_id) WHERE external_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS seo_regions (
   tenant TEXT NOT NULL,
   level INTEGER NOT NULL,
