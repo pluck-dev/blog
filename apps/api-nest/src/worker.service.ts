@@ -85,6 +85,7 @@ export class WorkerService {
         }
         if (qualityIssues.length) throw new Error(`generated article quality gate failed: ${qualityIssues.join(", ")}`);
         const title = extractTitle(markdown, slot.primary_keyword);
+        markdown = rewriteH1Title(markdown, title);
         const finalIssues = postSurfaceQualityIssues({ title, body_markdown: markdown, images: Object.keys(images).length ? JSON.stringify(images) : null, design_template_id: designTemplateId }, 2600, candidateCountFromFacts(facts.text));
         if (finalIssues.length) throw new Error(`generated article final surface gate failed: ${finalIssues.join(", ")}`);
         const slug = this.db.uniqueSlug(tenant, slugify(title), sid);
@@ -560,6 +561,10 @@ function publicBrandName(tenant: Row): string {
 }
 function extractTitle(md: string, fallback: string) {
   return cleanGeneratedTitle(md.split(/\r?\n/).map((l) => l.trim()).find((l) => l.startsWith("# "))?.slice(2).trim() || fallback);
+}
+function rewriteH1Title(md: string, title: string): string {
+  const h1 = `# ${cleanGeneratedTitle(title)}`;
+  return /^#\s+.+$/m.test(md) ? md.replace(/^#\s+.+$/m, h1) : `${h1}\n\n${md.trim()}`;
 }
 function cleanGeneratedTitle(title: string): string {
   return normalizeKoreanSpacing(stripMarkdownEmphasis(title))
