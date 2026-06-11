@@ -292,6 +292,10 @@ export class DbService implements OnModuleInit {
     return this.get(`SELECT * FROM posts WHERE tenant=? AND slug=?${status ? " AND status=?" : ""}`, status ? [tenant, slug, status] : [tenant, slug]);
   }
   uniqueSlug(tenant: string, base: string, slotId?: string | null): string {
+    if (slotId) {
+      const existingForSlot = this.get("SELECT slug FROM posts WHERE tenant=? AND slot_id=? AND status!='deleted' ORDER BY generated_at DESC LIMIT 1", [tenant, slotId]);
+      if (existingForSlot?.slug) return existingForSlot.slug;
+    }
     let cand = (base || "post").replace(/^-+|-+$/g, "") || "post"; let i = 2;
     while (true) {
       const row = this.get("SELECT slot_id FROM posts WHERE tenant=? AND slug=?", [tenant, cand]);
