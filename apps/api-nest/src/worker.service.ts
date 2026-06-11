@@ -340,9 +340,10 @@ function isAnyMarkdownTable(markdown: string): boolean {
 }
 
 function buildRepairPrompt(tenant: Row, slot: Row, facts: string, designTemplateId: string, markdown: string, issues: string[]): string {
+  const brand = publicBrandName(tenant);
   return `아래 Markdown 글은 품질 게이트를 통과하지 못했다. 검증된 자료만 사용해서 같은 주제의 완성형 글로 다시 작성하라.
 
-테넌트: ${tenant.display_name || tenant.domain}
+테넌트: ${brand}
 디자인 템플릿: ${designTemplateId}
 디자인 작성 지침: ${designWritingGuide(designTemplateId)}
 주 키워드: ${slot.primary_keyword}
@@ -366,7 +367,7 @@ ${facts || "없음"}
 - 사용 가능한 이미지 슬롯이 있으면 실제 키만 [IMAGE:academy_1] 형식으로 본문 흐름에 배치한다.
 - [1], [2] 같은 출처번호와 내부 표현(검증된 자료, API 자료, 후보 수, 참고자료, DrivingPlus API URL 등)은 노출하지 않는다.
 - 출처/참고자료는 도로교통공단처럼 실제 외부 공신력 자료를 별도로 인용했을 때만 작성한다. 이번 입력의 학원 API는 출처가 아니라 내부 데이터다.
-- 원문보다 더 자연스럽고 풍성한 운전선생 블로그 톤으로 작성한다.
+- 원문보다 더 자연스럽고 풍성한 ${brand} 블로그 톤으로 작성한다.
 - 출력은 수정된 Markdown 본문만 제공한다.
 
 기존 Markdown:
@@ -374,9 +375,10 @@ ${markdown}`;
 }
 
 function buildPrompt(tenant: Row, slot: Row, facts: string, designTemplateId: string): string {
-  return `너는 운전선생 블로그를 쓰는 한국어 SEO 에디터다. 아래 슬롯과 검증된 자료만 사용해, 실제 서비스 상세 페이지와 HTML 다운로드에서 바로 읽히는 완성형 Markdown 글을 작성하라.
+  const brand = publicBrandName(tenant);
+  return `너는 ${brand} 블로그를 쓰는 한국어 SEO 에디터다. 아래 슬롯과 검증된 자료만 사용해, 실제 서비스 상세 페이지와 HTML 다운로드에서 바로 읽히는 완성형 Markdown 글을 작성하라.
 
-테넌트: ${tenant.display_name || tenant.domain}
+테넌트: ${brand}
 업종: ${tenant.vertical || "general"}
 디자인 템플릿: ${designTemplateId}
 디자인 작성 지침: ${designWritingGuide(designTemplateId)}
@@ -401,7 +403,7 @@ ${facts || "없음"}
 - Markdown 굵게 표시(**학원명**, **Q1** 등)는 원문 품질을 떨어뜨리므로 쓰지 않는다. 강조가 필요하면 일반 문장으로 자연스럽게 작성한다.
 
 레퍼런스 품질 기준:
-- 딱딱한 데이터 나열이 아니라 운전선생 블로그처럼 자연스럽게 시작한다. 예: "바쁜 일정 때문에 면허 준비를 미루고 있다면..."처럼 독자 상황을 먼저 짚는다.
+- 딱딱한 데이터 나열이 아니라 ${brand} 블로그처럼 자연스럽게 시작한다. 예: "바쁜 일정 때문에 면허 준비를 미루고 있다면..."처럼 독자 상황을 먼저 짚는다.
 - 각 섹션은 제목만 던지지 말고 2~4문장 이상의 이어지는 단락으로 구성한다. 한 문장짜리 카드가 여러 개 끊기는 느낌을 피한다.
 - 후보 설명은 단순 주소 나열이 아니라 "어떤 생활권/상황의 사람에게 맞는지", "상담 때 무엇을 확인해야 하는지"까지 연결한다.
 - 표, 체크리스트, FAQ, 이미지가 글 흐름 안에 자연스럽게 들어가야 한다.
@@ -419,7 +421,7 @@ ${facts || "없음"}
 - [IMAGE_SLOT: ...], [TABLE_SLOT: ...], [CTA_SLOT: ...], [QUOTE_SLOT: ...] 같은 임의 플레이스홀더는 절대 쓰지 말 것.
 - 체크리스트 섹션은 ✅ 불릿 목록으로 작성한다.
 - FAQ는 질문/답변 3~5개로 작성한다.
-- 마지막 H2 섹션은 운전선생에서 비교·상담·예약으로 이어지는 자연스러운 CTA로 마무리한다.
+- 마지막 H2 섹션은 ${brand}에서 비교·상담·예약으로 이어지는 자연스러운 CTA로 마무리한다.
 
 문체/분량:
 - 3,000자 이상, 5,000자 이내. 5,000자를 절대 넘기지 말 것.
@@ -439,6 +441,9 @@ function designWritingGuide(designTemplateId: string): string {
     custom: "사용자 지정형. 저장된 기획 메모와 템플릿 구조를 우선 따르되, 섹션을 명확히 나눠 작성한다.",
   };
   return guides[designTemplateId] || guides.editorial!;
+}
+function publicBrandName(tenant: Row): string {
+  return String(tenant.display_name || tenant.domain || "서비스").replace(/\s*샘플\s*$/u, "").trim() || "서비스";
 }
 function extractTitle(md: string, fallback: string) { return md.split(/\r?\n/).map((l) => l.trim()).find((l) => l.startsWith("# "))?.slice(2).trim() || fallback; }
 function slugify(text: string) { return (text || "post").trim().replace(/[^\w가-힣\s-]/g, "").replace(/[\s_]+/g, "-").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "post"; }
