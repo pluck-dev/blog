@@ -7,6 +7,7 @@
     "typecheck": "npm --prefix apps/api-nest run typecheck && npm --prefix apps/admin-next run typecheck",
     "build": "npm --prefix apps/api-nest run build && npm --prefix apps/admin-next run build",
     "audit:all": "npm --prefix apps/api-nest audit --audit-level=high && npm --prefix apps/admin-next audit --audit-level=high",
-    "qa:posts": "node scripts/qa-posts.mjs"
+    "qa:posts": "node scripts/qa-posts.mjs",
+    "qa:posts:all": "node scripts/qa-posts.mjs --all"
   }
 }

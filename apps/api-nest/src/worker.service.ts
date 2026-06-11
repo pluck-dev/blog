@@ -69,7 +69,8 @@ export class WorkerService {
         let outputTokens = result.output_tokens || 0;
         let sessionId = result.session_id;
         let model = result.model;
-        if (qualityIssues.length) {
+        const maxRepairAttempts = clampInt(payload.max_repair_attempts, 2, 0, 3);
+        for (let repairAttempt = 0; qualityIssues.length && repairAttempt < maxRepairAttempts; repairAttempt++) {
           const repair = await runLlm(buildRepairPrompt(tenantMeta, slot, facts.text, designTemplateId, markdown, qualityIssues), llmOpts);
           durationSec += repair.duration_sec;
           costUsd += repair.cost_usd || 0;
@@ -184,12 +185,16 @@ export class WorkerService {
   }
 
   private processPrune(tenant: string, payload: Row): Row {
-    const minChars = Number(payload.min_body_chars ?? 700);
+    const minChars = Number(payload.min_body_chars ?? 2600);
     const dryRun = Boolean(payload.dry_run);
-    const rows = this.db.all("SELECT id, title, length(body_markdown) AS chars FROM posts WHERE tenant=? AND status='published'", [tenant]);
-    const targets = rows.filter((r) => Number(r.chars || 0) < minChars);
+    const rows = this.db.all("SELECT id, title, body_markdown, images, length(body_markdown) AS chars FROM posts WHERE tenant=? AND status='published'", [tenant]);
+    const targets: Row[] = [];
+    for (const r of rows) {
+      const issues = postSurfaceQualityIssues(r, minChars);
+      if (issues.length) targets.push({ id: r.id, title: r.title, chars: r.chars, issues });
+    }
     if (!dryRun) for (const r of targets) this.db.updatePostStatus(r.id, "noindex");
-    return { min_body_chars: minChars, dry_run: dryRun, candidates: targets, changed: dryRun ? 0 : targets.length };
+    return { min_body_chars: minChars, quality_gate: true, dry_run: dryRun, candidates: targets, changed: dryRun ? 0 : targets.length };
   }
 
   private processIndexing(tenant: string, payload: Row): Row {
@@ -277,6 +282,10 @@ function firstImageKey(row: Row, index: number): { key: string; url: string } {
   return { key: `academy_${index}`, url: url || String(row.thumb_url || "").trim() };
 }
 
+function clampInt(value: unknown, fallback: number, min: number, max: number): number {
+  const n = Number(value);
+  return Math.max(min, Math.min(max, Number.isFinite(n) ? Math.trunc(n) : fallback));
+}
 
 function normalizeGeneratedMarkdown(summary: string, images: Record<string, string>): string {
   return ensureImageSlots(
@@ -321,6 +330,30 @@ function articleQualityIssues(markdown: string, facts: string, images: Record<st
   if (/\[\d+\]/.test(markdown)) issues.push("contains_visible_citations");
   if (/(검증된 자료|API 자료|제공된 자료|후기 필드|직접 매칭 후보 수|참고자료|내부자료ID|내부 데이터|내부 API|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy)/i.test(markdown)) issues.push("exposes_internal_fact_language");
   if (imageKeys.length && usedImageKeys.length === 0) issues.push("missing_available_image_slot");
+  const unknown = usedImageKeys.filter((key) => !imageKeys.includes(key));
+  if (unknown.length) issues.push(`unknown_image_slots_${Array.from(new Set(unknown)).join("_")}`);
+  return issues;
+}
+
+function postSurfaceQualityIssues(post: Row, minChars = 2600): string[] {
+  const markdown = String(post.body_markdown || "");
+  const title = String(post.title || "");
+  const issues: string[] = [];
+  const chars = markdown.trim().length;
+  const h2Count = (markdown.match(/^##\s+/gm) || []).length;
+  const images = safeJson(post.images, {});
+  const imageKeys = images && typeof images === "object" && !Array.isArray(images) ? Object.keys(images) : [];
+  const usedImageKeys = Array.from(markdown.matchAll(/\[IMAGE:([A-Za-z0-9_-]+)\]/g)).map((m) => m[1]!);
+  if (!markdown.trim().startsWith("# ")) issues.push("missing_h1_title");
+  if (chars < minChars) issues.push(`too_short_${chars}`);
+  if (chars > 5000) issues.push(`too_long_${chars}`);
+  if (h2Count < 6) issues.push(`not_enough_h2_${h2Count}`);
+  if (!/(^|\n)\s*(?:[-*]\s+|\d+[.)]\s+|✅|✓)/m.test(markdown)) issues.push("missing_checklist_or_list");
+  if (!/(FAQ|자주 묻는 질문|질문과 답변)/i.test(markdown)) issues.push("missing_faq_section");
+  if (/\[(?:TABLE|CTA|FAQ|QUOTE|IMAGE)_SLOT:/i.test(markdown)) issues.push("contains_pseudo_slot");
+  if (/\*\*[^*]+\*\*/.test(markdown)) issues.push("contains_raw_bold_markers");
+  if (/\[\d+\]/.test(markdown)) issues.push("contains_visible_citations");
+  if (/(운전선생|검증된 자료|API 자료|제공된 자료|후기 필드|직접 매칭 후보 수|참고자료|내부자료ID|내부 데이터|내부 API|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy|zipcode\/search-seo)/i.test(`${title}\n${markdown}`)) issues.push("exposes_internal_fact_language");
   const unknown = usedImageKeys.filter((key) => !imageKeys.includes(key));
   if (unknown.length) issues.push(`unknown_image_slots_${Array.from(new Set(unknown)).join("_")}`);
   return issues;

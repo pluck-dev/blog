@@ -1,8 +1,9 @@
 import { DatabaseSync } from 'node:sqlite';
 
-const dbPath = process.argv[2] || 'data/admin.db';
+const args = process.argv.slice(2);
+const includeAll = args.includes('--all');
+const dbPath = args.find((arg) => arg !== '--all') || 'data/admin.db';
 const db = new DatabaseSync(dbPath);
-const includeAll = process.argv.includes('--all');
 const where = includeAll ? "status != 'deleted'" : "status = 'published'";
 const rows = db.prepare(`select id, slot_id, slug, title, status, body_markdown, images, design_template_id from posts where ${where} order by generated_at desc`).all();
 

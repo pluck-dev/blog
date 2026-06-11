@@ -303,7 +303,7 @@ export class DbService implements OnModuleInit {
     const id = randomUUID();
     this.run(`INSERT INTO posts (id, tenant, slot_id, slug, title, body_markdown, meta_description, images, design_template_id, provider, model, session_id, cost_usd, duration_sec, input_tokens, output_tokens)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(tenant, slug) DO UPDATE SET body_markdown=excluded.body_markdown, meta_description=excluded.meta_description, images=excluded.images, design_template_id=excluded.design_template_id, provider=excluded.provider, model=excluded.model, cost_usd=excluded.cost_usd, duration_sec=excluded.duration_sec, input_tokens=excluded.input_tokens, output_tokens=excluded.output_tokens, generated_at=CURRENT_TIMESTAMP`,
+      ON CONFLICT(tenant, slug) DO UPDATE SET title=excluded.title, slot_id=excluded.slot_id, body_markdown=excluded.body_markdown, meta_description=excluded.meta_description, images=excluded.images, design_template_id=excluded.design_template_id, status='published', provider=excluded.provider, model=excluded.model, session_id=excluded.session_id, cost_usd=excluded.cost_usd, duration_sec=excluded.duration_sec, input_tokens=excluded.input_tokens, output_tokens=excluded.output_tokens, generated_at=CURRENT_TIMESTAMP`,
       [id, input.tenant, input.slot_id ?? null, input.slug, input.title, input.body_markdown, input.meta_description ?? null, input.images ?? null, input.design_template_id || "editorial", input.provider ?? null, input.model ?? null, input.session_id ?? null, input.cost_usd ?? 0, input.duration_sec ?? null, input.input_tokens ?? 0, input.output_tokens ?? 0]);
     return id;
   }
