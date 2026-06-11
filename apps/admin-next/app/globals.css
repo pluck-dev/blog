@@ -137,6 +137,8 @@ tr:hover td { background: #fbfdff; }
 .preview-cta-block p { color: #cbd5e1; }
 .preview-bottom-cta { margin-top: 18px; border: 2px solid #ffe94d; border-radius: 16px; background: #fafaf7; padding: 16px; text-align: center; display: grid; gap: 12px; }
 .preview-phone-fluid { width: 100%; max-width: none; }
+.preview-phone-fluid .preview-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.preview-phone-fluid .preview-hero.has-image { background: #f8fafc; }
 .preview-phone-fluid .preview-body h4 { font-size: clamp(20px, 3vw, 34px); line-height: 1.3; font-weight: 950; letter-spacing: -.04em; }
 .preview-phone-fluid .generated-blocks { display: grid; gap: 12px; }
 .preview-phone-fluid .generated-blocks .preview-block { margin-top: 0; font-size: 14px; line-height: 1.75; }

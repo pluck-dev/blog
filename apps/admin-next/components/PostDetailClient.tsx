@@ -36,9 +36,9 @@ export default function PostDetailClient({ domain, postId }: { domain: string; p
   const design = DESIGN_SPECS[designId];
   const brand = tenant?.display_name ?? domain;
   const images = parseImages(post.images);
-  const heroImage = firstImage(images);
+  const heroImage = heroImageFor(images);
   const articleStyle = { ["--accent" as string]: design.accent, ["--accent-soft" as string]: design.soft, ["--primary" as string]: design.accent, background: design.pageBg };
-  const contentHtml = toPreviewBlocks(prepareBodyHtml(renderedHtml, post.title, Boolean(heroImage)));
+  const contentHtml = toPreviewBlocks(prepareBodyHtml(renderedHtml, post.title, heroImage));
   const chips = designChips(designId);
   return <div>
     <div className="page-head"><div><Link href={`/t/${encodeURIComponent(domain)}`} className="eyebrow">← {domain}</Link><h1>{post.title}</h1><p className="muted mono">{post.slug}</p></div><div className="row"><button className="btn" onClick={() => navigator.clipboard.writeText(post.body_markdown)}>Markdown 복사</button><button className="btn" onClick={() => download(`${post.slug}.md`, post.body_markdown, "text/markdown")}>Markdown 다운로드</button><button className="btn primary" onClick={() => download(`${post.slug}.html`, renderStandaloneHtml({ post, tenant, domain, designId, bodyHtml: renderedHtml }), "text/html;charset=utf-8")}>HTML 다운로드</button></div></div>
@@ -101,15 +101,19 @@ function escapeAttr(s: string) { return escapeHtml(s).replace(/'/g, "&#39;"); }
 function resolveDesign(value: string | null | undefined): DesignTemplateId {
   return value && value in DESIGN_SPECS ? value as DesignTemplateId : "editorial";
 }
-function firstImage(images: Record<string, string>): string | null {
-  return Object.entries(images).sort(([a], [b]) => a.localeCompare(b)).find(([, src]) => Boolean(src))?.[1] ?? null;
+function heroImageFor(images: Record<string, string>): string | null {
+  const entries = Object.entries(images).sort(([a], [b]) => a.localeCompare(b)).filter(([, src]) => Boolean(src));
+  return entries.find(([key, src]) => key !== "academy_1" && !/thumb|logo/i.test(src))?.[1] ?? entries.find(([, src]) => !/thumb|logo/i.test(src))?.[1] ?? entries[0]?.[1] ?? null;
 }
-function prepareBodyHtml(html: string, title: string, promoteFirstImage: boolean): string {
+function prepareBodyHtml(html: string, title: string, heroImage: string | null): string {
   let out = html.trim();
   const escapedTitle = escapeRegExp(escapeHtml(title.trim()));
   out = out.replace(new RegExp(`^<h1>\\s*${escapedTitle}\\s*</h1>\\s*`, "i"), "");
   out = out.replace(/^<h1>[\s\S]*?<\/h1>\s*/i, "");
-  if (promoteFirstImage) out = out.replace(/<figure class="post-image">[\s\S]*?<\/figure>\s*/i, "");
+  if (heroImage) {
+    const escapedSrc = escapeRegExp(escapeAttr(heroImage));
+    out = out.replace(new RegExp(`<figure class="post-image"><img src="${escapedSrc}"[\\s\\S]*?<\/figure>\\s*`, "i"), "");
+  }
   return out;
 }
 function toPreviewBlocks(html: string): string {
@@ -142,8 +146,8 @@ function renderStandaloneHtml({ post, tenant, domain, designId, bodyHtml }: { po
   const design = DESIGN_SPECS[designId];
   const brand = tenant?.display_name ?? domain;
   const title = post.title || brand;
-  const heroImage = firstImage(parseImages(post.images));
-  const contentHtml = toPreviewBlocks(prepareBodyHtml(bodyHtml, post.title, Boolean(heroImage)));
+  const heroImage = heroImageFor(parseImages(post.images));
+  const contentHtml = toPreviewBlocks(prepareBodyHtml(bodyHtml, post.title, heroImage));
   const chips = designChips(designId);
   return `<!doctype html>
 <html lang="ko">

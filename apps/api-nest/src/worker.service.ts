@@ -261,7 +261,51 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
 function deg2rad(value: number): number { return value * Math.PI / 180; }
 
 function buildPrompt(tenant: Row, slot: Row, facts: string, designTemplateId: string): string {
-  return `너는 한국어 SEO 콘텐츠 에디터다. 아래 슬롯에 맞춰 바로 발행 가능한 Markdown 글을 작성하라.\n\n테넌트: ${tenant.display_name || tenant.domain}\n업종: ${tenant.vertical || "general"}\n디자인 템플릿: ${designTemplateId}\n템플릿: ${slot.template_id}\n주 키워드: ${slot.primary_keyword}\n지역: ${slot.region || ""}\n페르소나: ${slot.persona || ""}\n의도: ${slot.intent || ""}\n수식어: ${[slot.modifier_1, slot.modifier_2].filter(Boolean).join(", ")}\n\n검증된 자료:\n${facts || "없음"}\n\n요구사항:\n- 첫 줄은 '# ' H1 제목\n- 실제 독자가 바로 도움받는 구체적인 문장\n- 근거 자료가 있으면 번호 출처 [1] 형태로 본문에 표시\n- 제공된 학원명/주소/전화/SEO 설명/사진만 사실 자료로 사용하고 없는 사실은 추측하지 말 것\n- 전화번호는 대표전화(vphone)가 있으면 vphone을 우선 사용하고, 없을 때만 일반 전화(phone)를 사용할 것\n- 이미지가 제공된 학원은 본문 흐름에 맞춰 [IMAGE:academy_1] 같은 이미지 슬롯을 1~3개 자연스럽게 배치할 것\n- SEO 키워드는 참고용으로만 사용하고 본문에 키워드를 부자연스럽게 나열하지 말 것\n- 과장/허위 금지\n- 1,200자 이상\n- 마지막에 상담/문의 전환 CTA 포함`;
+  return `너는 한국어 SEO 콘텐츠 에디터다. 아래 슬롯에 맞춰 바로 발행 가능한 Markdown 글을 작성하라.
+
+테넌트: ${tenant.display_name || tenant.domain}
+업종: ${tenant.vertical || "general"}
+디자인 템플릿: ${designTemplateId}
+디자인 작성 지침: ${designWritingGuide(designTemplateId)}
+템플릿: ${slot.template_id}
+주 키워드: ${slot.primary_keyword}
+지역: ${slot.region || ""}
+페르소나: ${slot.persona || ""}
+의도: ${slot.intent || ""}
+수식어: ${[slot.modifier_1, slot.modifier_2].filter(Boolean).join(", ")}
+
+검증된 자료:
+${facts || "없음"}
+
+필수 출력 구조:
+- 첫 줄은 '# ' H1 제목
+- 본문에는 '## ' H2 섹션을 최소 6개 이상 사용
+- 도입 → 지역/상황 고민 → 선택 기준 → 학원 후보별 설명 → 비교/체크 포인트 → 상담 전 질문 → 마무리 CTA 순서로 구성
+- 제공된 학원이 3곳 이상이면 최소 3곳을 각각 별도 문단으로 자세히 설명
+- 각 학원 문단에는 가능한 경우 학원명, 주소, 대표전화(vphone 우선), 운영 과정/유형, 어떤 사람에게 맞는지를 포함
+- 이미지가 제공된 학원은 해당 학원 설명 직후 [IMAGE:academy_1] 같은 이미지 슬롯을 1~3개 자연스럽게 배치
+- 글 중간에 핵심 체크리스트나 비교 기준을 문단형으로 정리. Markdown 표는 사용하지 말 것
+
+품질 요구사항:
+- 2,400자 이상, 5,000자 이내로 작성
+- 실제 독자가 바로 도움받는 구체적인 문장
+- 근거 자료가 있으면 번호 출처 [1] 형태로 본문에 표시
+- 제공된 학원명/주소/전화/SEO 설명/사진만 사실 자료로 사용하고 없는 사실은 추측하지 말 것
+- 전화번호는 대표전화(vphone)가 있으면 vphone을 우선 사용하고, 없을 때만 일반 전화(phone)를 사용할 것
+- SEO 키워드는 참고용으로만 사용하고 본문에 키워드를 부자연스럽게 나열하지 말 것
+- 과장/허위 금지
+- 마지막 H2 섹션은 상담/문의 전환 CTA로 마무리`;
+}
+function designWritingGuide(designTemplateId: string): string {
+  const guides: Record<string, string> = {
+    editorial: "브랜드 매거진형. 큰 대표 이미지 아래에서 차분한 설명, FAQ, 자연스러운 CTA가 이어지도록 작성한다.",
+    comparison: "BEST 비교형. 선택 기준과 후보별 장단점, 추천 대상을 앞쪽에 배치한다.",
+    "local-guide": "지역 추천형. 지역명, 생활권, 셔틀/동선, 가까운 후보를 중심으로 로컬 큐레이터처럼 작성한다.",
+    checklist: "체크리스트형. 준비 순서, 상담 전 확인 항목, 실수 방지 체크를 짧은 블록으로 나눠 작성한다.",
+    conversion: "예약 전환형. 문제 공감, 해결 기준, 비용/상담 질문, 예약 CTA가 분명하게 이어지도록 작성한다.",
+    custom: "사용자 지정형. 저장된 기획 메모와 템플릿 구조를 우선 따르되, 섹션을 명확히 나눠 작성한다.",
+  };
+  return guides[designTemplateId] || guides.editorial!;
 }
 function extractTitle(md: string, fallback: string) { return md.split(/\r?\n/).map((l) => l.trim()).find((l) => l.startsWith("# "))?.slice(2).trim() || fallback; }
 function slugify(text: string) { return (text || "post").trim().replace(/[^\w가-힣\s-]/g, "").replace(/[\s_]+/g, "-").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "post"; }
