@@ -262,7 +262,7 @@ CTA는 중간 1회, 마지막 1회만 사용한다.
         </Field>
         <div className="row"><button className="btn primary" disabled={busy || enabled.size === 0} onClick={() => onSave({ templates_enabled: Array.from(enabled).sort(), design_template_id: design, custom_design_templates: custom.trim() })}>{busy ? "저장 중..." : "글 유형/화면 구상 저장"}</button><span className="muted small">저장 후 새 글 후보/생성글부터 적용됩니다.</span></div>
       </div>
-      <DesignPreview blueprint={blueprint} designId={design} brand={tenant.display_name} title={activeDesign.name} summary={activeDesign.summary} />
+      <DesignPreview blueprint={blueprint} designId={design} brand={publicBrandName(tenant.display_name)} title={activeDesign.name} summary={activeDesign.summary} />
     </section>
   </div>;
 }
@@ -402,4 +402,7 @@ function parsePhotoCount(value: unknown): number {
     const parsed = JSON.parse(String(value));
     return Array.isArray(parsed) ? parsed.length : 0;
   } catch { return 0; }
+}
+function publicBrandName(value: string): string {
+  return value.replace(/\s*(?:샘플|데모)\s*$/u, "").trim() || value;
 }

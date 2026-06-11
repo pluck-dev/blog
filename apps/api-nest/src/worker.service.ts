@@ -523,7 +523,7 @@ function designStructureGuide(designTemplateId: string): string {
   return (guides[designTemplateId] || guides.editorial!).map((line) => `- ${line}`).join("\n");
 }
 function publicBrandName(tenant: Row): string {
-  return String(tenant.display_name || tenant.domain || "서비스").replace(/\s*샘플\s*$/u, "").trim() || "서비스";
+  return String(tenant.display_name || tenant.domain || "서비스").replace(/\s*(?:샘플|데모)\s*$/u, "").trim() || "서비스";
 }
 function extractTitle(md: string, fallback: string) {
   return cleanGeneratedTitle(md.split(/\r?\n/).map((l) => l.trim()).find((l) => l.startsWith("# "))?.slice(2).trim() || fallback);

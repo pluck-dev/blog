@@ -34,7 +34,7 @@ export default function PostDetailClient({ domain, postId }: { domain: string; p
   const renderedHtml = publishedHtml || bodyHtml || fallbackMarkdown(post.body_markdown, parseImages(post.images));
   const designId = resolveDesign(tenant?.design_template_id ?? post.design_template_id);
   const design = DESIGN_SPECS[designId];
-  const brand = tenant?.display_name ?? domain;
+  const brand = publicBrandName(tenant?.display_name ?? domain);
   const images = parseImages(post.images);
   const articleStyle = { ["--accent" as string]: design.accent, ["--accent-soft" as string]: design.soft, ["--primary" as string]: design.accent, background: design.pageBg };
   const contentHtml = toPreviewBlocks(prepareBodyHtml(renderedHtml, post.title, null));
@@ -107,6 +107,9 @@ function escapeHtml(s: string) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&am
 function escapeAttr(s: string) { return escapeHtml(s).replace(/'/g, "&#39;"); }
 function resolveDesign(value: string | null | undefined): DesignTemplateId {
   return value && value in DESIGN_SPECS ? value as DesignTemplateId : "editorial";
+}
+function publicBrandName(value: string): string {
+  return value.replace(/\s*(?:샘플|데모)\s*$/u, "").trim() || value;
 }
 function prepareBodyHtml(html: string, title: string, heroImage: string | null): string {
   let out = html.trim();
@@ -181,7 +184,7 @@ function formatShortDate(value: string | null | undefined): string {
 function escapeRegExp(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 function renderStandaloneHtml({ post, tenant, domain, designId, bodyHtml }: { post: PostDetail; tenant: Tenant | null; domain: string; designId: DesignTemplateId; bodyHtml: string }) {
   const design = DESIGN_SPECS[designId];
-  const brand = tenant?.display_name ?? domain;
+  const brand = publicBrandName(tenant?.display_name ?? domain);
   const title = post.title || brand;
   const contentHtml = toPreviewBlocks(prepareBodyHtml(bodyHtml, post.title, null));
   const chips = designChips(designId);
