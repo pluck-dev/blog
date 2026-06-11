@@ -117,7 +117,6 @@ export class WorkerService {
       if (a.latitude && a.longitude) parts.push(`좌표: ${a.latitude}, ${a.longitude}`);
       if (imageKey.url) parts.push(`이미지: [IMAGE:${imageKey.key}] ${imageKey.url}`);
       if (a.external_id) parts.push(`DrivingPlus academy_id=${a.external_id}`);
-      const src = [a.source_name, a.source_url].filter(Boolean).join(" "); if (src) parts.push(`(출처: ${src})`);
       return parts.join(" / ");
     }).join("\n");
     const header = [
@@ -126,6 +125,7 @@ export class WorkerService {
       `사용 가능한 이미지 슬롯: ${Object.keys(images).length ? Object.keys(images).map((key) => `[IMAGE:${key}]`).join(", ") : "없음"}`,
       `후기 필드가 있는 후보 수: ${academies.filter((a) => a.review).length}`,
       `주의: 후보 수와 자료 필드 밖의 학원명·가격·합격률·셔틀·후기는 생성 금지`,
+      `주의: DrivingPlus/API URL은 내부 데이터 동기화 경로이므로 본문 출처·참고자료로 노출 금지`,
     ].join("\n");
     return { text: [header, body].filter(Boolean).join("\n\n"), images };
   }
@@ -308,7 +308,7 @@ function articleQualityIssues(markdown: string, facts: string, images: Record<st
   if (!/(FAQ|자주 묻는 질문|질문과 답변)/i.test(markdown)) issues.push("missing_faq_section");
   if (/\[(?:TABLE|CTA|FAQ|QUOTE|IMAGE)_SLOT:/i.test(markdown)) issues.push("contains_pseudo_slot");
   if (/\[\d+\]/.test(markdown)) issues.push("contains_visible_citations");
-  if (/(검증된 자료|API 자료|제공된 자료|후기 필드|직접 매칭 후보 수)/.test(markdown)) issues.push("exposes_internal_fact_language");
+  if (/(검증된 자료|API 자료|제공된 자료|후기 필드|직접 매칭 후보 수|참고자료|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy)/i.test(markdown)) issues.push("exposes_internal_fact_language");
   if (imageKeys.length && usedImageKeys.length === 0) issues.push("missing_available_image_slot");
   const unknown = usedImageKeys.filter((key) => !imageKeys.includes(key));
   if (unknown.length) issues.push(`unknown_image_slots_${Array.from(new Set(unknown)).join("_")}`);
@@ -353,7 +353,8 @@ ${facts || "없음"}
 - 후보가 2곳 이상이면 Markdown 비교표 1개를 포함한다.
 - 체크리스트와 FAQ 3~5개를 포함한다.
 - 사용 가능한 이미지 슬롯이 있으면 실제 키만 [IMAGE:academy_1] 형식으로 본문 흐름에 배치한다.
-- [1], [2] 같은 출처번호와 내부 표현(검증된 자료, API 자료, 후보 수 등)은 노출하지 않는다.
+- [1], [2] 같은 출처번호와 내부 표현(검증된 자료, API 자료, 후보 수, 참고자료, DrivingPlus API URL 등)은 노출하지 않는다.
+- 출처/참고자료는 도로교통공단처럼 실제 외부 공신력 자료를 별도로 인용했을 때만 작성한다. 이번 입력의 학원 API는 출처가 아니라 내부 데이터다.
 - 원문보다 더 자연스럽고 풍성한 운전선생 블로그 톤으로 작성한다.
 - 출력은 수정된 Markdown 본문만 제공한다.
 
@@ -384,6 +385,8 @@ ${facts || "없음"}
 - 검증된 자료에 없는 학원명·사진·주소·전화번호·가격·셔틀·합격률·3일 합격·지역화폐·후기는 절대 생성하지 말 것.
 - 제공된 후보 수보다 큰 숫자를 제목/본문에 쓰지 말 것. 예: 후보가 2곳이면 '3곳', 'BEST5' 금지.
 - 출처번호 [1], [2]를 본문에 노출하지 말 것. 근거는 문장 안에 자연스럽게 녹인다.
+- DrivingPlus API URL이나 get-all-academy 주소는 내부 데이터 경로이므로 참고자료/출처 섹션에 절대 쓰지 말 것.
+- 출처/참고자료 섹션은 도로교통공단 등 외부 공신력 자료를 실제로 인용했을 때만 만든다. 그렇지 않으면 출처 섹션 자체를 만들지 않는다.
 - Markdown 굵게 표시는 **학원명**처럼 원문 기호가 보이면 안 된다. 굵게가 필요하면 정상 Markdown만 쓰고, 렌더러가 처리 가능한 문장으로 작성한다.
 
 레퍼런스 품질 기준:
@@ -412,7 +415,8 @@ ${facts || "없음"}
 - 독자가 바로 도움받을 수 있게 구체적으로 쓰되, 확인되지 않은 장점은 "상담 때 확인"으로 표현한다.
 - SEO 키워드는 참고용으로만 사용하고 부자연스럽게 반복하지 말 것.
 - 주 키워드와 맞지 않는 내용으로 글 방향을 틀지 말 것.
-- 출력은 Markdown 본문만 제공하고 설명/주석은 쓰지 말 것.`;
+- 출력은 Markdown 본문만 제공하고 설명/주석은 쓰지 말 것.
+- 마지막에 참고자료/출처 목록을 붙이지 말 것. 단, 도로교통공단 등 외부 공신력 자료를 실제로 인용한 경우에만 간단히 남긴다.`;
 }
 function designWritingGuide(designTemplateId: string): string {
   const guides: Record<string, string> = {
