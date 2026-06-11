@@ -280,16 +280,26 @@ function firstImageKey(row: Row, index: number): { key: string; url: string } {
 
 function normalizeGeneratedMarkdown(summary: string, images: Record<string, string>): string {
   return ensureImageSlots(
-    stripPseudoSlots(
-      stripPreamble(summary)
-        .replace(/^```(?:markdown|md)?\s*/i, "")
-        .replace(/```\s*$/i, "")
-        .replace(/\[(\d+)\]/g, "")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim()
+    stripMarkdownEmphasis(
+      stripPseudoSlots(
+        stripPreamble(summary)
+          .replace(/^```(?:markdown|md)?\s*/i, "")
+          .replace(/```\s*$/i, "")
+          .replace(/\[(\d+)\]/g, "")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim()
+      )
     ),
     images
   );
+}
+
+function stripMarkdownEmphasis(md: string): string {
+  return md
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/__([^_\n]+)__/g, "$1")
+    .replace(/(^|[\s(])\*([^*\n]+)\*($|[\s).,!?])/g, "$1$2$3")
+    .replace(/(^|[\s(])_([^_\n]+)_($|[\s).,!?])/g, "$1$2$3");
 }
 
 function articleQualityIssues(markdown: string, facts: string, images: Record<string, string>): string[] {
@@ -307,6 +317,7 @@ function articleQualityIssues(markdown: string, facts: string, images: Record<st
   if (!/(^|\n)\s*(?:[-*]\s+|\d+[.)]\s+|✅)/m.test(markdown)) issues.push("missing_checklist_or_list");
   if (!/(FAQ|자주 묻는 질문|질문과 답변)/i.test(markdown)) issues.push("missing_faq_section");
   if (/\[(?:TABLE|CTA|FAQ|QUOTE|IMAGE)_SLOT:/i.test(markdown)) issues.push("contains_pseudo_slot");
+  if (/\*\*[^*]+\*\*/.test(markdown)) issues.push("contains_raw_bold_markers");
   if (/\[\d+\]/.test(markdown)) issues.push("contains_visible_citations");
   if (/(검증된 자료|API 자료|제공된 자료|후기 필드|직접 매칭 후보 수|참고자료|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy)/i.test(markdown)) issues.push("exposes_internal_fact_language");
   if (imageKeys.length && usedImageKeys.length === 0) issues.push("missing_available_image_slot");
@@ -387,7 +398,7 @@ ${facts || "없음"}
 - 출처번호 [1], [2]를 본문에 노출하지 말 것. 근거는 문장 안에 자연스럽게 녹인다.
 - DrivingPlus API URL이나 get-all-academy 주소는 내부 데이터 경로이므로 참고자료/출처 섹션에 절대 쓰지 말 것.
 - 출처/참고자료 섹션은 도로교통공단 등 외부 공신력 자료를 실제로 인용했을 때만 만든다. 그렇지 않으면 출처 섹션 자체를 만들지 않는다.
-- Markdown 굵게 표시는 **학원명**처럼 원문 기호가 보이면 안 된다. 굵게가 필요하면 정상 Markdown만 쓰고, 렌더러가 처리 가능한 문장으로 작성한다.
+- Markdown 굵게 표시(**학원명**, **Q1** 등)는 원문 품질을 떨어뜨리므로 쓰지 않는다. 강조가 필요하면 일반 문장으로 자연스럽게 작성한다.
 
 레퍼런스 품질 기준:
 - 딱딱한 데이터 나열이 아니라 운전선생 블로그처럼 자연스럽게 시작한다. 예: "바쁜 일정 때문에 면허 준비를 미루고 있다면..."처럼 독자 상황을 먼저 짚는다.
