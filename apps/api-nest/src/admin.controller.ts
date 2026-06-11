@@ -292,13 +292,22 @@ function renderMarkdown(markdown: string, images: Record<string, string> = {}): 
       const src = images[key];
       if (src) return `<figure class="post-image"><img src="${escapeAttr(src)}" alt="${escapeAttr(key)}" loading="lazy" /></figure>`;
     }
-    const s = escapeHtml(raw);
+    const s = renderInlineMarkdown(raw);
     if (!s) return "";
-    if (s.startsWith("# ")) return `<h1>${s.slice(2)}</h1>`;
-    if (s.startsWith("## ")) return `<h2>${s.slice(3)}</h2>`;
-    if (s.startsWith("### ")) return `<h3>${s.slice(4)}</h3>`;
+    if (raw.startsWith("# ")) return `<h1>${renderInlineMarkdown(raw.slice(2))}</h1>`;
+    if (raw.startsWith("## ")) return `<h2>${renderInlineMarkdown(raw.slice(3))}</h2>`;
+    if (raw.startsWith("### ")) return `<h3>${renderInlineMarkdown(raw.slice(4))}</h3>`;
     return `<p>${s.replace(/\n/g, "<br>")}</p>`;
   }).join("\n");
+}
+function renderInlineMarkdown(raw: string): string {
+  let s = escapeHtml(raw);
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_m, label, url) => `<a href="${escapeAttr(url)}" target="_blank" rel="nofollow noopener">${label}</a>`);
+  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  s = s.replace(/\[(\d+)\]/g, '<sup class="cite">[$1]</sup>');
+  return s;
 }
 function escapeHtml(s: string): string { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] || c)); }
 function escapeAttr(s: string): string { return escapeHtml(s).replace(/'/g, "&#39;"); }
