@@ -57,7 +57,8 @@ export async function listPosts(params: { limit?: number; offset?: number } = {}
 /** 발행글 상세(본문 포함). 없으면 null. */
 export async function getPost(slug: string): Promise<PostDetail | null> {
   try {
-    return await api<PostDetail>(`/posts/${encodeURIComponent(slug)}`);
+    const data = await api<{ post: PostDetail }>(`/posts/${encodeURIComponent(slug)}`);
+    return data.post;
   } catch (err) {
     if (err instanceof Error && err.message.includes("404")) return null;
     throw err;

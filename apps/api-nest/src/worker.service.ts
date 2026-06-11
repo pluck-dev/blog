@@ -85,6 +85,8 @@ export class WorkerService {
         }
         if (qualityIssues.length) throw new Error(`generated article quality gate failed: ${qualityIssues.join(", ")}`);
         const title = extractTitle(markdown, slot.primary_keyword);
+        const finalIssues = postSurfaceQualityIssues({ title, body_markdown: markdown, images: Object.keys(images).length ? JSON.stringify(images) : null, design_template_id: designTemplateId }, 2600, candidateCountFromFacts(facts.text));
+        if (finalIssues.length) throw new Error(`generated article final surface gate failed: ${finalIssues.join(", ")}`);
         const slug = this.db.uniqueSlug(tenant, slugify(title), sid);
         this.db.insertPost({
           tenant, slot_id: sid, slug, title, body_markdown: markdown,
@@ -94,7 +96,7 @@ export class WorkerService {
         });
         this.db.updateSlotStatus(sid, "published");
         publishMarkdownArtifact(slug, markdown);
-        ok++; per_slot.push({ slot_id: sid, ok: true, duration_sec: durationSec, chars: markdown.length, model });
+        ok++; per_slot.push({ slot_id: sid, ok: true, duration_sec: durationSec, chars: markdown.length, model, design_template_id: designTemplateId });
       } catch (error: any) {
         const message = error?.message || String(error);
         this.db.updateSlotStatus(sid, "failed", message);
@@ -102,7 +104,7 @@ export class WorkerService {
       }
       if (index < slotIds.length - 1) await sleep(Number(payload.cooldown_sec || 60) * 1000);
     }
-    return { ok, fail, per_slot };
+    return { ok, fail, generation_gate_version: "surface-v2", per_slot };
   }
 
   private buildFacts(tenant: string, slot: Row): GenerationFacts {
@@ -116,17 +118,16 @@ export class WorkerService {
       const parts = [`[${i + 1}] ${a.name}`];
       for (const [label, key] of [["주소", "address"], ["수강료", "price"], ["셔틀", "shuttle"], ["영업시간", "hours"], ["합격률", "pass_rate"], ["전화", "phone"], ["대표전화", "vphone"], ["후기", "review"], ["SEO 설명", "seo_description"], ["SEO 키워드", "seo_keywords"], ["유형", "academy_type"]] as const) if (a[key]) parts.push(`${label}: ${a[key]}`);
       if (a.latitude && a.longitude) parts.push(`좌표: ${a.latitude}, ${a.longitude}`);
-      if (imageKey.url) parts.push(`이미지: [IMAGE:${imageKey.key}] ${imageKey.url}`);
-      if (a.external_id) parts.push(`내부자료ID=${a.external_id}`);
+      if (imageKey.url) parts.push(`사진 슬롯: [IMAGE:${imageKey.key}]`);
       return parts.join(" / ");
     }).join("\n");
     const header = [
-      `직접 매칭 기준 지역: ${region}`,
-      `직접 매칭 후보 수: ${academies.length}`,
-      `사용 가능한 이미지 슬롯: ${Object.keys(images).length ? Object.keys(images).map((key) => `[IMAGE:${key}]`).join(", ") : "없음"}`,
-      `후기 필드가 있는 후보 수: ${academies.filter((a) => a.review).length}`,
-      `주의: 후보 수와 자료 필드 밖의 학원명·가격·합격률·셔틀·후기는 생성 금지`,
-      `주의: 내부 데이터 동기화 경로와 내부자료ID는 본문 출처·참고자료로 노출 금지`,
+      `작성 주제 지역: ${region}`,
+      `본문에 사용할 수 있는 후보: ${academies.length}곳`,
+      `본문에 사용할 수 있는 사진 슬롯: ${Object.keys(images).length ? Object.keys(images).map((key) => `[IMAGE:${key}]`).join(", ") : "없음"}`,
+      `후기 문구가 있는 후보: ${academies.filter((a) => a.review).length}곳`,
+      `작성자 주의: 아래 필드 밖의 학원명·가격·합격률·셔틀·후기는 생성 금지`,
+      `작성자 주의: 이 데이터는 내부 입력값이므로 본문 출처·참고자료로 노출 금지`,
     ].join("\n");
     return { text: [header, body].filter(Boolean).join("\n\n"), images };
   }
@@ -187,10 +188,12 @@ export class WorkerService {
   private processPrune(tenant: string, payload: Row): Row {
     const minChars = Number(payload.min_body_chars ?? 2600);
     const dryRun = Boolean(payload.dry_run);
-    const rows = this.db.all("SELECT id, title, body_markdown, images, length(body_markdown) AS chars FROM posts WHERE tenant=? AND status='published'", [tenant]);
+    const rows = this.db.all("SELECT id, slot_id, title, body_markdown, images, length(body_markdown) AS chars FROM posts WHERE tenant=? AND status='published'", [tenant]);
     const targets: Row[] = [];
     for (const r of rows) {
-      const issues = postSurfaceQualityIssues(r, minChars);
+      const slot = r.slot_id ? this.db.getSlot(String(r.slot_id)) : null;
+      const candidateCount = slot?.region ? this.pickAcademiesForRegion(tenant, String(slot.region), 5).length : 0;
+      const issues = postSurfaceQualityIssues(r, minChars, candidateCount);
       if (issues.length) targets.push({ id: r.id, title: r.title, chars: r.chars, issues });
     }
     if (!dryRun) for (const r of targets) this.db.updatePostStatus(r.id, "noindex");
@@ -304,11 +307,20 @@ function normalizeGeneratedMarkdown(summary: string, images: Record<string, stri
 }
 
 function stripMarkdownEmphasis(md: string): string {
-  return md
+  return normalizeKoreanSpacing(md)
     .replace(/\*\*([^*\n]+)\*\*/g, "$1")
     .replace(/__([^_\n]+)__/g, "$1")
     .replace(/(^|[\s(])\*([^*\n]+)\*($|[\s).,!?])/g, "$1$2$3")
     .replace(/(^|[\s(])_([^_\n]+)_($|[\s).,!?])/g, "$1$2$3");
+}
+
+function normalizeKoreanSpacing(text: string): string {
+  return text
+    .replace(/상담전확인/g, "상담 전 확인")
+    .replace(/동선확인/g, "동선 확인")
+    .replace(/비용절약/g, "비용 절약")
+    .replace(/셔틀편리/g, "셔틀 편리")
+    .replace(/비교추천/g, "비교 추천");
 }
 
 function articleQualityIssues(markdown: string, facts: string, images: Record<string, string>): string[] {
@@ -328,14 +340,15 @@ function articleQualityIssues(markdown: string, facts: string, images: Record<st
   if (/\[(?:TABLE|CTA|FAQ|QUOTE|IMAGE)_SLOT:/i.test(markdown)) issues.push("contains_pseudo_slot");
   if (/\*\*[^*]+\*\*/.test(markdown)) issues.push("contains_raw_bold_markers");
   if (/\[\d+\]/.test(markdown)) issues.push("contains_visible_citations");
-  if (/(검증된 자료|API 자료|제공된 자료|후기 필드|직접 매칭 후보 수|참고자료|내부자료ID|내부 데이터|내부 API|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy)/i.test(markdown)) issues.push("exposes_internal_fact_language");
+  if (thinSectionCount(markdown) > 1) issues.push("thin_sections");
+  if (/(검증된 자료|API 자료|제공된 자료|후기 필드|직접 매칭 후보 수|사용 가능한 이미지 슬롯|본문에 사용할 수 있는 후보|본문에 사용할 수 있는 사진 슬롯|작성자 주의|참고자료|내부자료ID|내부 데이터|내부 API|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy|firebasestorage\.googleapis\.com|storage\.googleapis\.com)/i.test(markdown)) issues.push("exposes_internal_fact_language");
   if (imageKeys.length && usedImageKeys.length === 0) issues.push("missing_available_image_slot");
   const unknown = usedImageKeys.filter((key) => !imageKeys.includes(key));
   if (unknown.length) issues.push(`unknown_image_slots_${Array.from(new Set(unknown)).join("_")}`);
   return issues;
 }
 
-function postSurfaceQualityIssues(post: Row, minChars = 2600): string[] {
+function postSurfaceQualityIssues(post: Row, minChars = 2600, candidateCount = 0): string[] {
   const markdown = String(post.body_markdown || "");
   const title = String(post.title || "");
   const issues: string[] = [];
@@ -348,12 +361,14 @@ function postSurfaceQualityIssues(post: Row, minChars = 2600): string[] {
   if (chars < minChars) issues.push(`too_short_${chars}`);
   if (chars > 5000) issues.push(`too_long_${chars}`);
   if (h2Count < 6) issues.push(`not_enough_h2_${h2Count}`);
+  if (candidateCount >= 2 && !isAnyMarkdownTable(markdown)) issues.push("missing_comparison_table");
+  if (thinSectionCount(markdown) > 1) issues.push("thin_sections");
   if (!/(^|\n)\s*(?:[-*]\s+|\d+[.)]\s+|✅|✓)/m.test(markdown)) issues.push("missing_checklist_or_list");
   if (!/(FAQ|자주 묻는 질문|질문과 답변)/i.test(markdown)) issues.push("missing_faq_section");
   if (/\[(?:TABLE|CTA|FAQ|QUOTE|IMAGE)_SLOT:/i.test(markdown)) issues.push("contains_pseudo_slot");
   if (/\*\*[^*]+\*\*/.test(markdown)) issues.push("contains_raw_bold_markers");
   if (/\[\d+\]/.test(markdown)) issues.push("contains_visible_citations");
-  if (/(운전선생|검증된 자료|API 자료|제공된 자료|후기 필드|직접 매칭 후보 수|참고자료|내부자료ID|내부 데이터|내부 API|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy|zipcode\/search-seo)/i.test(`${title}\n${markdown}`)) issues.push("exposes_internal_fact_language");
+  if (/(운전선생|검증된 자료|API 자료|제공된 자료|후기 필드|직접 매칭 후보 수|사용 가능한 이미지 슬롯|본문에 사용할 수 있는 후보|본문에 사용할 수 있는 사진 슬롯|작성자 주의|참고자료|내부자료ID|내부 데이터|내부 API|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy|zipcode\/search-seo|firebasestorage\.googleapis\.com|storage\.googleapis\.com)/i.test(`${title}\n${markdown}`)) issues.push("exposes_internal_fact_language");
   if (/[가-힣]+(?:시|군|구|읍|면|동)운전면허학원/.test(title)) issues.push("keyword_spacing_issue");
   const unknown = usedImageKeys.filter((key) => !imageKeys.includes(key));
   if (unknown.length) issues.push(`unknown_image_slots_${Array.from(new Set(unknown)).join("_")}`);
@@ -361,9 +376,27 @@ function postSurfaceQualityIssues(post: Row, minChars = 2600): string[] {
 }
 
 function candidateCountFromFacts(facts: string): number {
-  const direct = facts.match(/직접 매칭 후보 수:\s*(\d+)/);
+  const direct = facts.match(/(?:직접 매칭 후보 수|본문에 사용할 수 있는 후보):\s*(\d+)/);
   if (direct) return Number(direct[1]);
   return (facts.match(/^\[\d+\]/gm) || []).length;
+}
+
+function thinSectionCount(markdown: string): number {
+  const sections = markdown.split(/^##\s+/gm).slice(1);
+  let count = 0;
+  for (const section of sections) {
+    const lines = section.split(/\r?\n/);
+    const heading = String(lines.shift() || "");
+    if (/FAQ|자주 묻는 질문|체크리스트|요약|상담|예약/i.test(heading)) continue;
+    const text = lines.join("\n")
+      .replace(/\[IMAGE:[A-Za-z0-9_-]+\]/g, "")
+      .replace(/\|[^\n]+\|/g, "")
+      .replace(/(^|\n)\s*(?:[-*]\s+|\d+[.)]\s+|✅|✓).*$/gm, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (text.length > 0 && text.length < 140) count++;
+  }
+  return count;
 }
 
 function isAnyMarkdownTable(markdown: string): boolean {
@@ -398,7 +431,7 @@ ${facts || "없음"}
 - 제목/지역/후보 학원/이미지는 검증된 자료와 반드시 일치시킨다.
 - 후보 수보다 큰 숫자, 다른 지역 후보, 없는 가격·합격률·셔틀·후기·3일 합격 주장을 만들지 않는다.
 - 첫 줄은 '# ' 제목, H2 6개 이상, 3,000~5,000자 이내.
-- 후보가 2곳 이상이면 Markdown 비교표 1개를 포함한다.
+- 후보가 2곳 이상이면 Markdown 비교표 1개를 포함한다. 후보가 1곳이어도 요약 체크표 대신 3개 이상 불릿으로 핵심 확인 항목을 정리한다.
 - 체크리스트와 FAQ 3~5개를 포함한다.
 - 사용 가능한 이미지 슬롯이 있으면 실제 키만 [IMAGE:academy_1] 형식으로 본문 흐름에 배치한다.
 - [1], [2] 같은 출처번호와 내부 표현(검증된 자료, API 자료, 후보 수, 참고자료, 내부 API URL 등)은 노출하지 않는다.
@@ -443,9 +476,9 @@ ${facts || "없음"}
 
 레퍼런스 품질 기준:
 - 딱딱한 데이터 나열이 아니라 ${brand} 블로그처럼 자연스럽게 시작한다. 예: "바쁜 일정 때문에 면허 준비를 미루고 있다면..."처럼 독자 상황을 먼저 짚는다.
-- 각 섹션은 제목만 던지지 말고 2~4문장 이상의 이어지는 단락으로 구성한다. 한 문장짜리 카드가 여러 개 끊기는 느낌을 피한다.
+- 각 H2 섹션은 제목만 던지지 말고 2~4문장 이상의 이어지는 단락으로 구성한다. FAQ/체크리스트를 제외한 섹션은 최소 140자 이상의 설명을 넣어 한 문장짜리 카드가 여러 개 끊기는 느낌을 피한다.
 - 후보 설명은 단순 주소 나열이 아니라 "어떤 생활권/상황의 사람에게 맞는지", "상담 때 무엇을 확인해야 하는지"까지 연결한다.
-- 표, 체크리스트, FAQ, 이미지가 글 흐름 안에 자연스럽게 들어가야 한다.
+- 표, 체크리스트, FAQ, 이미지가 글 흐름 안에 자연스럽게 들어가야 한다. 표 앞뒤에는 표를 왜 봐야 하는지 해석 문장을 붙인다.
 - 자료에 리뷰가 있으면 짧은 인용문 1개를 쓸 수 있다. 리뷰가 없으면 실제 후기처럼 꾸며 쓰지 말고 상담 확인 팁으로 대체한다.
 
 필수 출력 구조:
@@ -529,14 +562,22 @@ function extractTitle(md: string, fallback: string) {
   return cleanGeneratedTitle(md.split(/\r?\n/).map((l) => l.trim()).find((l) => l.startsWith("# "))?.slice(2).trim() || fallback);
 }
 function cleanGeneratedTitle(title: string): string {
-  return stripMarkdownEmphasis(title)
+  return normalizeKoreanSpacing(stripMarkdownEmphasis(title))
     .replace(/([가-힣]+(?:시|군|구|읍|면|동))(운전면허학원)/g, "$1 $2")
     .replace(/\s{2,}/g, " ")
     .trim();
 }
 function slugify(text: string) { return (text || "post").trim().replace(/[^\w가-힣\s-]/g, "").replace(/[\s_]+/g, "-").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "post"; }
 function stripPreamble(md: string) { const lines = md.split(/\r?\n/); const i = lines.findIndex((l) => l.trim().startsWith("# ")); return (i >= 0 ? lines.slice(i).join("\n") : md).trim(); }
-function stripPseudoSlots(md: string) { return md.split(/\r?\n/).filter((line) => !/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(line.trim())).join("\n").replace(/\n{3,}/g, "\n\n").trim(); }
+function stripPseudoSlots(md: string) {
+  return md
+    .split(/\r?\n/)
+    .filter((line) => !/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(line.trim()))
+    .join("\n")
+    .replace(/\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 function ensureImageSlots(md: string, images: Record<string, string>) {
   const keys = Object.keys(images).sort((a, b) => a.localeCompare(b));
   if (!keys.length || /\[IMAGE:[A-Za-z0-9_-]+\]/.test(md)) return md;

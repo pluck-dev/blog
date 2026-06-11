@@ -32,7 +32,7 @@ export default function PostDetailClient({ domain, postId }: { domain: string; p
   if (error) return <p className="toast-error">{error}</p>;
   if (!post) return <div className="card card-pad">로딩 중...</div>;
   const renderedHtml = publishedHtml || bodyHtml || fallbackMarkdown(post.body_markdown, parseImages(post.images));
-  const designId = resolveDesign(tenant?.design_template_id ?? post.design_template_id);
+  const designId = resolveDesign(post.design_template_id ?? tenant?.design_template_id);
   const design = DESIGN_SPECS[designId];
   const brand = publicBrandName(tenant?.display_name ?? domain);
   const images = parseImages(post.images);

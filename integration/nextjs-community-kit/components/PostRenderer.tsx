@@ -4,7 +4,7 @@
  * 표준 마크다운 + 우리 커스텀 슬롯을 처리한다:
  *   - 헤딩/문단/리스트/blockquote
  *   - 실제 마크다운 표(|...|)
- *   - [IMAGE_SLOT: kind]      → 이미지 자리(타깃 사이트가 실제 이미지로 교체 가능)
+ *   - [IMAGE:key] / [IMAGE_SLOT: kind] → 이미지 자리(타깃 사이트가 실제 이미지로 교체 가능)
  *   - [TABLE_SLOT: name]      → 안내 표(LLM이 실제 표를 마크다운으로 넣으므로 보조용)
  *   - [INTERNAL_LINK: label]  → 내부 링크
  *   - 출처 번호 [1]           → 위첨자
@@ -114,7 +114,7 @@ export function PostRenderer({ markdown, images = {}, internalLinks = {} }: Post
     if (table.length) flushTable();
     if (!line) { flushAll(); continue; }
 
-    const image = /^\[IMAGE_SLOT:\s*([^\]]+)\]$/.exec(line);
+    const image = /^\[IMAGE(?::|_SLOT:)\s*([^\]]+)\]$/.exec(line);
     const tableSlot = /^\[TABLE_SLOT:\s*([^\]]+)\]$/.exec(line);
     const internal = /^\[INTERNAL_LINK:\s*([^\]]+)\]$/.exec(line);
     if (image) {
@@ -154,7 +154,7 @@ export function PostRenderer({ markdown, images = {}, internalLinks = {} }: Post
       blocks.push(<blockquote key={`bq-${k++}`}>{renderInline(line.replace(/^>\s*/, ""), `bq-${k}`)}</blockquote>);
       continue;
     }
-    const bullet = /^[-*]\s+(.+)$/.exec(line);
+    const bullet = /^(?:[-*]\s+|[✅✔✓]\s*)(.+)$/.exec(line);
     if (bullet) {
       flushPara(); flushTable();
       if (!list || list.type !== "ul") { flushList(); list = { type: "ul", items: [] }; }

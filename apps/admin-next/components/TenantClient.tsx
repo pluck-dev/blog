@@ -24,6 +24,16 @@ const TABS = [
   ["overview", "개요"], ["plan", "기획"], ["templates", "글유형/디자인"], ["axes", "축"],
   ["academies", "학원자료"], ["slots", "슬롯"], ["posts", "글"], ["settings", "설정"],
 ] as const;
+
+const PREVIEW_DESIGN_SPECS: Record<string, { topCta: string; bottomCta: string }> = {
+  editorial: { topCta: "지금 바로 비교·예약", bottomCta: "상담/예약하러 가기" },
+  comparison: { topCta: "BEST 한눈에 비교", bottomCta: "내게 맞는 곳 찾기" },
+  "local-guide": { topCta: "내 주변에서 찾기", bottomCta: "가까운 곳 예약하기" },
+  checklist: { topCta: "체크리스트 저장", bottomCta: "준비 시작하기" },
+  conversion: { topCta: "비용 상담 신청", bottomCta: "지금 예약하기" },
+  custom: { topCta: "자세히 보기", bottomCta: "문의하기" },
+};
+
 const DESIGN_BLUEPRINTS: Record<string, {
   label: string;
   title: string;
@@ -85,7 +95,7 @@ const DESIGN_BLUEPRINTS: Record<string, {
     blocks: [
       { title: "3분 요약", body: "신분증, 시험 시간, 코스 확인처럼 놓치면 바로 문제가 되는 항목을 맨 위에 둡니다." },
       { title: "준비 체크", body: "신분증 챙기기|시험장 도착 시간 확인|좌석/거울 조정 연습|감점 포인트 복습", kind: "list" },
-      { title: "자주 하는 실수", body: "방향지시등, 일시정지, 속도 조절처럼 반복되는 실수를 짧은 예시로 설명합니다." },
+      { title: "자주 하는 실수", body: "방향지시등, 일시정지, 속도 조절처럼 반복되는 실수를 실제 상황 중심으로 설명합니다." },
       { title: "시험 전 연결", body: "불안한 구간만 추가 연습할 수 있는 학원/강습 탐색으로 이어집니다.", kind: "cta" },
     ],
   },
@@ -105,7 +115,7 @@ const DESIGN_BLUEPRINTS: Record<string, {
   },
   custom: {
     label: "직접 입력한 메모를 기준으로 잡는 화면",
-    title: "내가 정한 화면 구상으로 만든 예시글",
+    title: "내가 정한 화면 구상을 반영한 글",
     lead: "오른쪽 메모에 원하는 화면 구조를 적으면 직접 만든 디자인 기준으로 저장됩니다.",
     chips: ["커스텀", "직접 설계"],
     sections: ["상단 구성", "본문 규칙", "표/이미지 위치", "CTA 위치"],
@@ -200,7 +210,7 @@ function Overview({ tenant, counts, onTab }: { tenant: Tenant; counts: SlotCount
       <div className="card card-pad"><h2>양산 기획</h2><p className="muted">{tenant.content_brief || "아직 기획 메모가 없습니다."}</p><button className="btn" onClick={() => onTab("plan")}>기획 열기</button></div>
       <div className="card card-pad"><h2>글 유형/디자인</h2><p className="muted">글 유형 {tenant.templates_enabled.length}개 · 디자인 {tenant.design_template_id ?? "editorial"}</p><button className="btn" onClick={() => onTab("templates")}>디자인 고르기</button></div>
     </div>
-    <div className="card card-pad"><h2>빠른 시작</h2><ol className="muted"><li>기획 탭에서 글 방향과 축 값을 입력</li><li>글유형/디자인 탭에서 템플릿 선택</li><li>슬롯 탭에서 후보 생성 후 예시 글 작성</li><li>글 탭에서 확인하고 색인/중복/가지치기 실행</li></ol></div>
+    <div className="card card-pad"><h2>빠른 시작</h2><ol className="muted"><li>기획 탭에서 글 방향과 축 값을 입력</li><li>글유형/디자인 탭에서 템플릿 선택</li><li>슬롯 탭에서 후보 생성 후 실제 글 작성</li><li>글 탭에서 확인하고 색인/중복/가지치기 실행</li></ol></div>
   </div>;
 }
 
@@ -217,7 +227,7 @@ function Plan({ tenant, axes, busy, onSave, onRefresh, onTab }: { tenant: Tenant
   }
   return <div className="card card-pad grid">
     <h2>양산할 글 기획</h2>
-    <Field label="이번에 양산할 글의 방향 / 검증된 자료"><textarea className="textarea" rows={7} value={brief} onChange={(e) => setBrief(e.target.value)} placeholder="예: 수도권 직장인이 빠르게 운전면허를 따기 위해 지역별 학원, 비용, 셔틀 여부를 비교하는 글을 만든다." /></Field>
+    <Field label="이번에 양산할 글의 방향 / 검증된 자료"><textarea className="textarea" rows={7} value={brief} onChange={(e) => setBrief(e.target.value)} placeholder="수도권 직장인이 빠르게 운전면허를 따기 위해 지역별 학원, 비용, 셔틀 여부를 비교하는 글을 만든다." /></Field>
     <div className="grid grid-2">{AXES.map((axis) => <Field key={axis} label={AXIS_LABEL[axis]}><textarea className="textarea" value={texts[axis]} onChange={(e) => setTexts((p) => ({ ...p, [axis]: e.target.value }))} placeholder={AXIS_PLACEHOLDER[axis]} /></Field>)}</div>
     <div className="row"><button className="btn primary" onClick={save} disabled={busy}>{busy ? "저장 중..." : "기획 저장"}</button><button className="btn" onClick={() => onTab("templates")}>글 유형 고르기</button><button className="btn" onClick={() => onTab("slots")}>글 후보 만들기</button></div>
   </div>;
@@ -255,7 +265,7 @@ function Templates({ tenant, options, busy, onSave }: { tenant: Tenant; options:
           </button>;
         })}</div>
         <Field label="직접 만드는 화면 구상 메모">
-          <textarea className="textarea" rows={7} value={custom} onChange={(e) => { setCustom(e.target.value); if (e.target.value.trim()) setDesign("custom"); }} placeholder={`예: 첫 화면에는 큰 제목과 핵심 요약 3개를 둔다.
+          <textarea className="textarea" rows={7} value={custom} onChange={(e) => { setCustom(e.target.value); if (e.target.value.trim()) setDesign("custom"); }} placeholder={`첫 화면에는 큰 제목과 핵심 요약 3개를 둔다.
 비교표는 본문 상단에 배치한다.
 CTA는 중간 1회, 마지막 1회만 사용한다.
 모바일에서는 카드형 목록으로 보이게 한다.`} />
@@ -338,7 +348,7 @@ function Slots({ tenant, slots, options, onRefresh }: { tenant: Tenant; slots: S
   async function gen() { await api(`/tenants/${encodeURIComponent(tenant.domain)}/slots/generate`, { method: "POST", body: JSON.stringify({ max_per_template: max }) }); await onRefresh(); }
   async function queue(ids: string[]) { if (!ids.length) return; const r = await enqueueGenerate(tenant.domain, { slot_ids: ids, provider, model, design_template_id: tenant.design_template_id, use_web_research: web, cooldown_sec: cooldown, timeout_sec: timeout }); alert(`작업 큐 등록: ${r.job_id}`); setSelected(new Set()); await onRefresh(); }
   async function delSelected() { if (!confirm(`${selected.size}개 삭제?`)) return; for (const id of selected) await api(`/tenants/${encodeURIComponent(tenant.domain)}/slots/${id}`, { method: "DELETE" }); setSelected(new Set()); await onRefresh(); }
-  return <div className="grid"><div className="card card-pad grid"><h2>글 후보 만들기/작성</h2><div className="grid grid-4"><Field label="템플릿당 최대"><input className="input" type="number" value={max} onChange={(e) => setMax(Number(e.target.value))} /></Field><Field label="작성 엔진"><select className="select" value={provider} onChange={(e) => setProvider(e.target.value as Provider)}>{options.providers.map((p) => <option key={p}>{p}</option>)}</select></Field><Field label="모델"><input className="input" value={model} onChange={(e) => setModel(e.target.value)} /></Field><Field label="제한시간"><input className="input" type="number" value={timeout} onChange={(e) => setTimeout(Number(e.target.value))} /></Field></div><div className="row"><button className="btn primary" onClick={gen}>재료로 글 후보 만들기</button><button className="btn" onClick={() => queue(filtered.slice(0,1).map((s) => s.slot_id))}>예시 글 1개 만들기</button><label className="row small"><input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} /> 웹 자료 수집 후 작성</label><Field label="대량 대기시간"><input className="input" type="number" value={cooldown} onChange={(e) => setCooldown(Number(e.target.value))} /></Field></div><div className="writer-hint"><b>작성 옵션</b><span>{provider}{model ? ` / ${model}` : ""}</span><span>디자인 {tenant.design_template_id ?? "editorial"}</span><span>웹자료 {web ? "사용" : "미사용"}</span><span>선택 기준 예상 {expectedMinutes}분</span></div></div><div className="row"><select className="select" style={{ width: 150 }} value={status} onChange={(e) => setStatus(e.target.value)}><option value="">전체 상태</option>{["planned","in_progress","published","failed","pruned"].map((s) => <option key={s}>{s}</option>)}</select><select className="select" style={{ width: 150 }} value={template} onChange={(e) => setTemplate(e.target.value)}><option value="">전체 유형</option>{options.templates.map((t) => <option key={t}>{t}</option>)}</select><input className="input" style={{ width: 240 }} placeholder="검색" value={q} onChange={(e) => setQ(e.target.value)} /><span className="muted small">{selected.size}개 선택 / {filtered.length}개</span><button className="btn primary" disabled={!selected.size} onClick={() => queue(Array.from(selected))}>선택 글 작성</button><button className="btn danger" disabled={!selected.size} onClick={delSelected}>삭제</button></div><div className="table-wrap"><table><thead><tr><th><input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={() => setSelected(selected.size === filtered.length ? new Set() : new Set(filtered.map((s) => s.slot_id)))} /></th><th>유형</th><th>키워드</th><th>지역</th><th>페르소나</th><th>점수</th><th>상태</th></tr></thead><tbody>{filtered.slice(0,300).map((s) => <tr key={s.slot_id}><td><input type="checkbox" checked={selected.has(s.slot_id)} onChange={() => setSelected((p) => { const n = new Set(p); n.has(s.slot_id) ? n.delete(s.slot_id) : n.add(s.slot_id); return n; })} /></td><td><span className="badge">{s.template_id}</span></td><td><b>{s.primary_keyword}</b><p className="muted small mono">{s.slot_id}</p>{s.last_error && <p className="small" style={{ color: "var(--danger)" }}>{s.last_error}</p>}</td><td>{s.region ?? "-"}</td><td>{s.persona ?? "-"}</td><td>{s.priority_score?.toFixed(1) ?? "-"}</td><td><Status status={s.status} /></td></tr>)}</tbody></table></div></div>;
+  return <div className="grid"><div className="card card-pad grid"><h2>글 후보 만들기/작성</h2><div className="grid grid-4"><Field label="템플릿당 최대"><input className="input" type="number" value={max} onChange={(e) => setMax(Number(e.target.value))} /></Field><Field label="작성 엔진"><select className="select" value={provider} onChange={(e) => setProvider(e.target.value as Provider)}>{options.providers.map((p) => <option key={p}>{p}</option>)}</select></Field><Field label="모델"><input className="input" value={model} onChange={(e) => setModel(e.target.value)} /></Field><Field label="제한시간"><input className="input" type="number" value={timeout} onChange={(e) => setTimeout(Number(e.target.value))} /></Field></div><div className="row"><button className="btn primary" onClick={gen}>재료로 글 후보 만들기</button><button className="btn" onClick={() => queue(filtered.slice(0,1).map((s) => s.slot_id))}>글 1개 바로 작성</button><label className="row small"><input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} /> 웹 자료 수집 후 작성</label><Field label="대량 대기시간"><input className="input" type="number" value={cooldown} onChange={(e) => setCooldown(Number(e.target.value))} /></Field></div><div className="writer-hint"><b>작성 옵션</b><span>{provider}{model ? ` / ${model}` : ""}</span><span>디자인 {tenant.design_template_id ?? "editorial"}</span><span>웹자료 {web ? "사용" : "미사용"}</span><span>선택 기준 예상 {expectedMinutes}분</span></div></div><div className="row"><select className="select" style={{ width: 150 }} value={status} onChange={(e) => setStatus(e.target.value)}><option value="">전체 상태</option>{["planned","in_progress","published","failed","pruned"].map((s) => <option key={s}>{s}</option>)}</select><select className="select" style={{ width: 150 }} value={template} onChange={(e) => setTemplate(e.target.value)}><option value="">전체 유형</option>{options.templates.map((t) => <option key={t}>{t}</option>)}</select><input className="input" style={{ width: 240 }} placeholder="검색" value={q} onChange={(e) => setQ(e.target.value)} /><span className="muted small">{selected.size}개 선택 / {filtered.length}개</span><button className="btn primary" disabled={!selected.size} onClick={() => queue(Array.from(selected))}>선택 글 작성</button><button className="btn danger" disabled={!selected.size} onClick={delSelected}>삭제</button></div><div className="table-wrap"><table><thead><tr><th><input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={() => setSelected(selected.size === filtered.length ? new Set() : new Set(filtered.map((s) => s.slot_id)))} /></th><th>유형</th><th>키워드</th><th>지역</th><th>페르소나</th><th>점수</th><th>상태</th></tr></thead><tbody>{filtered.slice(0,300).map((s) => <tr key={s.slot_id}><td><input type="checkbox" checked={selected.has(s.slot_id)} onChange={() => setSelected((p) => { const n = new Set(p); n.has(s.slot_id) ? n.delete(s.slot_id) : n.add(s.slot_id); return n; })} /></td><td><span className="badge">{s.template_id}</span></td><td><b>{s.primary_keyword}</b><p className="muted small mono">{s.slot_id}</p>{s.last_error && <p className="small" style={{ color: "var(--danger)" }}>{s.last_error}</p>}</td><td>{s.region ?? "-"}</td><td>{s.persona ?? "-"}</td><td>{s.priority_score?.toFixed(1) ?? "-"}</td><td><Status status={s.status} /></td></tr>)}</tbody></table></div></div>;
 }
 
 function Posts({ tenant, posts, onRefresh }: { tenant: Tenant; posts: PostSummary[]; onRefresh: () => Promise<void> }) {
@@ -358,11 +368,12 @@ function Settings({ tenant, options, onSave, onRefresh }: { tenant: Tenant; opti
 }
 
 function DesignPreview({ blueprint, designId, brand, title, summary }: { blueprint: typeof DESIGN_BLUEPRINTS[string]; designId: string; brand: string; title: string; summary: string }) {
+  const spec = PREVIEW_DESIGN_SPECS[designId] ?? PREVIEW_DESIGN_SPECS.editorial;
   return <aside className="preview-panel">
-    <div className="preview-head"><div><b>예시글 미리보기</b><p className="muted small">{blueprint.label}</p></div><span className="badge info">{designId}</span></div>
+    <div className="preview-head"><div><b>디자인 미리보기</b><p className="muted small">{blueprint.label}</p></div><span className="badge info">{designId}</span></div>
     <div className={`preview-phone design-${designId}`}>
-      <div className="preview-top"><div><b>{brand}</b><p>면허 합격은 시간 문제!</p></div><span className="preview-cta">나도 도전하기</span></div>
-      <div className="preview-hero"><span>blog main image</span></div>
+      <div className="preview-top"><div><b>{brand}</b><p>{blueprint.tone}</p></div><span className="preview-cta">{spec.topCta}</span></div>
+      <div className="preview-hero"><span>대표 영역</span></div>
       <div className="preview-body">
         <div className="preview-meta"><span>26.04.03</span><span>조회 0</span></div>
         <h4>{blueprint.title}</h4>
@@ -370,7 +381,7 @@ function DesignPreview({ blueprint, designId, brand, title, summary }: { bluepri
         <div className="row">{blueprint.chips.map((chip) => <span className="badge" key={chip}>{chip}</span>)}</div>
         <p className="muted small">{blueprint.lead}</p>
         {blueprint.blocks.map((block) => <PreviewBlock key={block.title} block={block} />)}
-        <section className="preview-bottom-cta"><b>지금 바로 최저가로 예약 가능한 곳을 찾아보세요!</b><button className="btn primary">내 근처 찾기</button></section>
+        <section className="preview-bottom-cta"><b>{brand}에서 {spec.bottomCta}</b><button className="btn primary">{spec.bottomCta}</button></section>
       </div>
     </div>
     <div className="card card-pad preview-spec">

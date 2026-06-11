@@ -8,7 +8,8 @@
     "start": "node dist/main.js",
     "worker": "tsx src/worker-entry.ts",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "worker:once": "tsx src/worker-once.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.9",
