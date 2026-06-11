@@ -354,6 +354,7 @@ function postSurfaceQualityIssues(post: Row, minChars = 2600): string[] {
   if (/\*\*[^*]+\*\*/.test(markdown)) issues.push("contains_raw_bold_markers");
   if (/\[\d+\]/.test(markdown)) issues.push("contains_visible_citations");
   if (/(운전선생|검증된 자료|API 자료|제공된 자료|후기 필드|직접 매칭 후보 수|참고자료|내부자료ID|내부 데이터|내부 API|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy|zipcode\/search-seo)/i.test(`${title}\n${markdown}`)) issues.push("exposes_internal_fact_language");
+  if (/[가-힣]+(?:시|군|구|읍|면|동)운전면허학원/.test(title)) issues.push("keyword_spacing_issue");
   const unknown = usedImageKeys.filter((key) => !imageKeys.includes(key));
   if (unknown.length) issues.push(`unknown_image_slots_${Array.from(new Set(unknown)).join("_")}`);
   return issues;
@@ -524,7 +525,15 @@ function designStructureGuide(designTemplateId: string): string {
 function publicBrandName(tenant: Row): string {
   return String(tenant.display_name || tenant.domain || "서비스").replace(/\s*샘플\s*$/u, "").trim() || "서비스";
 }
-function extractTitle(md: string, fallback: string) { return md.split(/\r?\n/).map((l) => l.trim()).find((l) => l.startsWith("# "))?.slice(2).trim() || fallback; }
+function extractTitle(md: string, fallback: string) {
+  return cleanGeneratedTitle(md.split(/\r?\n/).map((l) => l.trim()).find((l) => l.startsWith("# "))?.slice(2).trim() || fallback);
+}
+function cleanGeneratedTitle(title: string): string {
+  return stripMarkdownEmphasis(title)
+    .replace(/([가-힣]+(?:시|군|구|읍|면|동))(운전면허학원)/g, "$1 $2")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
 function slugify(text: string) { return (text || "post").trim().replace(/[^\w가-힣\s-]/g, "").replace(/[\s_]+/g, "-").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "post"; }
 function stripPreamble(md: string) { const lines = md.split(/\r?\n/); const i = lines.findIndex((l) => l.trim().startsWith("# ")); return (i >= 0 ? lines.slice(i).join("\n") : md).trim(); }
 function stripPseudoSlots(md: string) { return md.split(/\r?\n/).filter((line) => !/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(line.trim())).join("\n").replace(/\n{3,}/g, "\n\n").trim(); }

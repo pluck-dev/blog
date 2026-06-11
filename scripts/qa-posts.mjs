@@ -17,6 +17,7 @@ function issuesFor(row) {
   const h2 = (body.match(/^##\s+/gm) || []).length;
   if (h2 < 6) issues.push(`few_h2:${h2}`);
   if (/운전선생|api-dev\.drivingplus\.me|get-all-academy|zipcode\/search-seo|DrivingPlus/i.test(body + row.title)) issues.push('internal_or_wrong_brand_leak');
+  if (/[가-힣]+(?:시|군|구|읍|면|동)운전면허학원/.test(String(row.title || ''))) issues.push('keyword_spacing_issue');
   if (/참고자료/.test(body) && !/도로교통공단|경찰청|정부24|법제처/.test(body)) issues.push('weak_source_section');
   if (/\*\*[^*]+\*\*/.test(body)) issues.push('raw_bold_markdown');
   if (/\[(?:TABLE|CTA|FAQ|QUOTE|IMAGE)_SLOT:/i.test(body)) issues.push('pseudo_slot');
