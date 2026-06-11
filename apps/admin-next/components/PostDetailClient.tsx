@@ -36,18 +36,20 @@ export default function PostDetailClient({ domain, postId }: { domain: string; p
   const design = DESIGN_SPECS[designId];
   const brand = tenant?.display_name ?? domain;
   const images = parseImages(post.images);
-  const heroImage = heroImageFor(images);
   const articleStyle = { ["--accent" as string]: design.accent, ["--accent-soft" as string]: design.soft, ["--primary" as string]: design.accent, background: design.pageBg };
-  const contentHtml = toPreviewBlocks(prepareBodyHtml(renderedHtml, post.title, heroImage));
+  const contentHtml = toPreviewBlocks(prepareBodyHtml(renderedHtml, post.title, null));
   const chips = designChips(designId);
   return <div>
     <div className="page-head"><div><Link href={`/t/${encodeURIComponent(domain)}`} className="eyebrow">← {domain}</Link><h1>{post.title}</h1><p className="muted mono">{post.slug}</p></div><div className="row"><button className="btn" onClick={() => navigator.clipboard.writeText(post.body_markdown)}>Markdown 복사</button><button className="btn" onClick={() => download(`${post.slug}.md`, post.body_markdown, "text/markdown")}>Markdown 다운로드</button><button className="btn primary" onClick={() => download(`${post.slug}.html`, renderStandaloneHtml({ post, tenant, domain, designId, bodyHtml: renderedHtml }), "text/html;charset=utf-8")}>HTML 다운로드</button></div></div>
     <div className="grid post-detail-layout" style={{ gridTemplateColumns: "minmax(0, 1fr) 320px", alignItems: "start" }}>
       <article className={`preview-phone preview-phone-fluid design-${designId}`} style={articleStyle}>
         <div className="preview-top"><div><b>{brand}</b><p>{design.label}</p></div><span className="preview-cta">{design.topCta}</span></div>
-        <div className={`preview-hero post-hero ${heroImage ? "has-image" : ""}`}>
-          {heroImage && <img src={heroImage} alt={`${brand} 대표 이미지`} loading="lazy" />}
-          <span>{heroImage ? "academy image" : "blog main image"}</span>
+        <div className="preview-hero post-hero title-hero">
+          <div>
+            <span>{design.label}</span>
+            <h3>{post.title}</h3>
+            {post.meta_description && <p>{post.meta_description}</p>}
+          </div>
         </div>
         <div className="preview-body">
           <div className="preview-meta"><span>{formatShortDate(post.generated_at)}</span><span>{designId}</span></div>
@@ -105,10 +107,6 @@ function escapeHtml(s: string) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&am
 function escapeAttr(s: string) { return escapeHtml(s).replace(/'/g, "&#39;"); }
 function resolveDesign(value: string | null | undefined): DesignTemplateId {
   return value && value in DESIGN_SPECS ? value as DesignTemplateId : "editorial";
-}
-function heroImageFor(images: Record<string, string>): string | null {
-  const entries = Object.entries(images).sort(([a], [b]) => a.localeCompare(b)).filter(([, src]) => Boolean(src));
-  return entries.find(([key, src]) => key !== "academy_1" && !/thumb|logo/i.test(src))?.[1] ?? entries.find(([, src]) => !/thumb|logo/i.test(src))?.[1] ?? entries[0]?.[1] ?? null;
 }
 function prepareBodyHtml(html: string, title: string, heroImage: string | null): string {
   let out = html.trim();
@@ -185,8 +183,7 @@ function renderStandaloneHtml({ post, tenant, domain, designId, bodyHtml }: { po
   const design = DESIGN_SPECS[designId];
   const brand = tenant?.display_name ?? domain;
   const title = post.title || brand;
-  const heroImage = heroImageFor(parseImages(post.images));
-  const contentHtml = toPreviewBlocks(prepareBodyHtml(bodyHtml, post.title, heroImage));
+  const contentHtml = toPreviewBlocks(prepareBodyHtml(bodyHtml, post.title, null));
   const chips = designChips(designId);
   return `<!doctype html>
 <html lang="ko">
@@ -201,9 +198,12 @@ function renderStandaloneHtml({ post, tenant, domain, designId, bodyHtml }: { po
   <main class="post-page">
     <article class="preview-phone preview-phone-fluid design-${designId}" style="--accent:${design.accent};--accent-soft:${design.soft};--primary:${design.accent};background:${design.pageBg}">
       <div class="preview-top"><div><b>${escapeHtml(brand)}</b><p>${escapeHtml(design.label)}</p></div><span class="preview-cta">${escapeHtml(design.topCta)}</span></div>
-      <div class="preview-hero post-hero ${heroImage ? "has-image" : ""}">
-        ${heroImage ? `<img src="${escapeAttr(heroImage)}" alt="${escapeAttr(`${brand} 대표 이미지`)}" loading="lazy" />` : ""}
-        <span>${heroImage ? "academy image" : "blog main image"}</span>
+      <div class="preview-hero post-hero title-hero">
+        <div>
+          <span>${escapeHtml(design.label)}</span>
+          <h3>${escapeHtml(post.title)}</h3>
+          ${post.meta_description ? `<p>${escapeHtml(post.meta_description)}</p>` : ""}
+        </div>
       </div>
       <div class="preview-body">
         <div class="preview-meta"><span>${escapeHtml(formatShortDate(post.generated_at))}</span><span>${escapeHtml(designId)}</span></div>
@@ -223,5 +223,5 @@ ${contentHtml}
 }
 function standaloneCss() {
   return `
-*{box-sizing:border-box}body{margin:0;background:transparent;color:#111827;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.post-page{width:100%;padding:0}.preview-phone{width:100%;max-width:none;border:1px solid #e5e7eb;border-radius:24px;overflow:hidden;background:white;box-shadow:0 20px 50px rgba(15,23,42,.14)}.preview-top{background:var(--primary);color:white;padding:16px;display:flex;justify-content:space-between;gap:10px;align-items:center}.preview-top p{margin:2px 0 0;opacity:.85;font-size:12px}.preview-cta{border-radius:12px;background:#ffe94d;color:#111827;padding:9px 12px;font-size:12px;font-weight:900;white-space:nowrap}.preview-hero{margin:18px;aspect-ratio:16/9;border-radius:14px;background:linear-gradient(135deg,#d8e8ff,#f6f0ff 45%,#fff4a7);position:relative;overflow:hidden}.preview-hero img{width:100%;height:100%;object-fit:cover;display:block}.preview-hero span{position:absolute;left:16px;bottom:16px;border-radius:999px;background:rgba(255,255,255,.88);padding:6px 10px;font-size:11px;color:var(--primary);font-weight:900}.preview-body{padding:0 22px 22px}.preview-meta{display:flex;justify-content:center;gap:16px;color:#94a3b8;font-size:11px}.preview-body h4{text-align:center;font-size:clamp(20px,3vw,34px);line-height:1.3;margin:14px 0;font-weight:950;letter-spacing:-.04em}.preview-divider{height:9px;border-radius:999px;background:#ffe94d;margin:14px 0}.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.post-chips{margin-bottom:14px}.badge{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:800;background:#f1f5f9;color:#334155}.muted{color:#64748b}.small{font-size:12px}.generated-blocks{display:grid;gap:12px}.preview-block{border-radius:12px;background:#f8fafc;padding:12px;margin:0;font-size:14px;line-height:1.75}.preview-block p{margin:6px 0 0;color:#64748b}.generated-blocks ul,.generated-blocks ol{margin:8px 0 0;padding-left:20px;color:#475569}.generated-blocks li{margin:4px 0}.generated-blocks blockquote{margin:0;border-left:4px solid #ffe94d;background:#fafaf7;padding:12px;border-radius:0 12px 12px 0;color:#475569}.preview-block strong{font-weight:900;color:#020617}.preview-block a{color:var(--primary);font-weight:800}.post-table-wrap{overflow:auto;border:1px solid #e5e7eb;border-radius:12px;background:white}.post-table-wrap table{min-width:680px;margin:0;font-size:13px}.post-table-wrap th{background:#fffacc;color:#111827;font-weight:900}.post-table-wrap td{background:white}.preview-block code{border-radius:6px;background:#e2e8f0;padding:2px 6px}.preview-block h2,.preview-block h3{margin:0 0 6px;font-size:16px}.post-image{margin:0;border-radius:14px;overflow:hidden}.post-image img{display:block;width:100%;max-height:520px;object-fit:cover;border-radius:14px}.cite{color:#64748b;font-size:.72em}.preview-bottom-cta{margin-top:18px;border:2px solid #ffe94d;border-radius:16px;background:#fafaf7;padding:16px;text-align:center;display:grid;gap:12px}.btn{display:inline-flex;align-items:center;justify-content:center;border-radius:12px;padding:10px 14px;text-decoration:none;font-weight:900}.btn.primary{background:var(--primary);color:white}.design-comparison .preview-divider{background:repeating-linear-gradient(90deg,var(--primary) 0,var(--primary) 22px,#ffe94d 22px,#ffe94d 36px)}.design-local-guide .preview-divider{border-top:2px dashed rgba(81,50,215,.45);background:transparent;height:16px}.design-checklist .preview-divider{height:auto;padding:8px;border:1px solid #ffe94d;background:#fffacc;color:var(--primary);text-align:center;font-size:10px;font-weight:900;letter-spacing:.16em}.design-checklist .preview-divider::before{content:"CHECK BEFORE RESERVATION"}.design-conversion .preview-top{background:#111827}.design-conversion .preview-divider{background:linear-gradient(90deg,var(--primary),#ffe94d,var(--primary))}.design-conversion .preview-bottom-cta{background:#111827;color:white}.design-conversion .preview-bottom-cta .btn.primary{background:#ffe94d;color:#111827}@media(max-width:720px){.preview-phone{border-radius:0}.preview-top{align-items:flex-start;flex-direction:column}}`;
+*{box-sizing:border-box}body{margin:0;background:transparent;color:#111827;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.post-page{width:100%;padding:0}.preview-phone{width:100%;max-width:none;border:1px solid #e5e7eb;border-radius:24px;overflow:hidden;background:white;box-shadow:0 20px 50px rgba(15,23,42,.14)}.preview-top{background:var(--primary);color:white;padding:16px;display:flex;justify-content:space-between;gap:10px;align-items:center}.preview-top p{margin:2px 0 0;opacity:.85;font-size:12px}.preview-cta{border-radius:12px;background:#ffe94d;color:#111827;padding:9px 12px;font-size:12px;font-weight:900;white-space:nowrap}.preview-hero{margin:18px;min-height:280px;border-radius:14px;background:radial-gradient(circle at 18% 20%,rgba(255,255,255,.55),transparent 30%),linear-gradient(135deg,var(--accent-soft),#f6f0ff 45%,#fff4a7);position:relative;overflow:hidden;display:flex;align-items:flex-end;padding:22px}.preview-hero.title-hero h3{margin:10px 0 0;font-size:clamp(24px,4.6vw,48px);line-height:1.18;letter-spacing:-.055em;color:#111827}.preview-hero.title-hero p{max-width:760px;margin:12px 0 0;color:#475569;font-weight:700;line-height:1.65}.preview-hero span{display:inline-flex;border-radius:999px;background:rgba(255,255,255,.88);padding:6px 10px;font-size:11px;color:var(--primary);font-weight:900}.preview-body{padding:0 22px 22px}.preview-meta{display:flex;justify-content:center;gap:16px;color:#94a3b8;font-size:11px}.preview-body h4{text-align:center;font-size:clamp(20px,3vw,34px);line-height:1.3;margin:14px 0;font-weight:950;letter-spacing:-.04em}.preview-divider{height:9px;border-radius:999px;background:#ffe94d;margin:14px 0}.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.post-chips{margin-bottom:14px}.badge{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:800;background:#f1f5f9;color:#334155}.muted{color:#64748b}.small{font-size:12px}.generated-blocks{display:grid;gap:12px}.preview-block{border-radius:12px;background:#f8fafc;padding:12px;margin:0;font-size:14px;line-height:1.75}.preview-block p{margin:6px 0 0;color:#64748b}.generated-blocks ul,.generated-blocks ol{margin:8px 0 0;padding-left:20px;color:#475569}.generated-blocks li{margin:4px 0}.generated-blocks blockquote{margin:0;border-left:4px solid #ffe94d;background:#fafaf7;padding:12px;border-radius:0 12px 12px 0;color:#475569}.preview-block strong{font-weight:900;color:#020617}.preview-block a{color:var(--primary);font-weight:800}.post-table-wrap{overflow:auto;border:1px solid #e5e7eb;border-radius:12px;background:white}.post-table-wrap table{min-width:680px;margin:0;font-size:13px}.post-table-wrap th{background:#fffacc;color:#111827;font-weight:900}.post-table-wrap td{background:white}.preview-block code{border-radius:6px;background:#e2e8f0;padding:2px 6px}.preview-block h2,.preview-block h3{margin:0 0 6px;font-size:16px}.post-image{margin:0;border-radius:14px;overflow:hidden}.post-image img{display:block;width:100%;max-height:520px;object-fit:cover;border-radius:14px}.cite{color:#64748b;font-size:.72em}.preview-bottom-cta{margin-top:18px;border:2px solid #ffe94d;border-radius:16px;background:#fafaf7;padding:16px;text-align:center;display:grid;gap:12px}.btn{display:inline-flex;align-items:center;justify-content:center;border-radius:12px;padding:10px 14px;text-decoration:none;font-weight:900}.btn.primary{background:var(--primary);color:white}.design-comparison .preview-divider{background:repeating-linear-gradient(90deg,var(--primary) 0,var(--primary) 22px,#ffe94d 22px,#ffe94d 36px)}.design-local-guide .preview-divider{border-top:2px dashed rgba(81,50,215,.45);background:transparent;height:16px}.design-checklist .preview-divider{height:auto;padding:8px;border:1px solid #ffe94d;background:#fffacc;color:var(--primary);text-align:center;font-size:10px;font-weight:900;letter-spacing:.16em}.design-checklist .preview-divider::before{content:"CHECK BEFORE RESERVATION"}.design-conversion .preview-top{background:#111827}.design-conversion .preview-divider{background:linear-gradient(90deg,var(--primary),#ffe94d,var(--primary))}.design-conversion .preview-bottom-cta{background:#111827;color:white}.design-conversion .preview-bottom-cta .btn.primary{background:#ffe94d;color:#111827}@media(max-width:720px){.preview-phone{border-radius:0}.preview-top{align-items:flex-start;flex-direction:column}}`;
 }

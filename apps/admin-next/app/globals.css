@@ -165,3 +165,39 @@ tr:hover td { background: #fbfdff; }
 @media (max-width: 1180px) { .preview-panel { position: static; } section[style*="grid-template-columns"] { grid-template-columns: 1fr !important; } }
 .writer-hint { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border: 1px solid #ddd6fe; background: #f7f5ff; color: #4c1d95; padding: 11px 12px; border-radius: 12px; font-size: 12px; }
 .writer-hint span { background: white; border: 1px solid #ede9fe; border-radius: 999px; padding: 4px 8px; }
+
+/* Generated post main banner: title-first hero, academy photos stay in body content. */
+.preview-phone-fluid .preview-hero.title-hero {
+  min-height: clamp(260px, 34vw, 520px);
+  aspect-ratio: auto;
+  display: flex;
+  align-items: flex-end;
+  padding: clamp(22px, 4vw, 48px);
+  background:
+    radial-gradient(circle at 16% 18%, rgba(255,255,255,.7), transparent 28%),
+    radial-gradient(circle at 82% 12%, rgba(255,233,77,.42), transparent 26%),
+    linear-gradient(135deg, var(--accent-soft, #f2efff), #f6f0ff 48%, #fff4a7);
+}
+.preview-phone-fluid .preview-hero.title-hero > div { max-width: 980px; }
+.preview-phone-fluid .preview-hero.title-hero span {
+  position: static;
+  display: inline-flex;
+  width: fit-content;
+  margin: 0;
+}
+.preview-phone-fluid .preview-hero.title-hero h3 {
+  margin: 12px 0 0;
+  font-size: clamp(28px, 4.7vw, 64px);
+  line-height: 1.16;
+  letter-spacing: -.06em;
+  color: #111827;
+  font-weight: 950;
+}
+.preview-phone-fluid .preview-hero.title-hero p {
+  max-width: 760px;
+  margin: 14px 0 0;
+  color: #475569;
+  font-size: clamp(14px, 1.45vw, 18px);
+  line-height: 1.7;
+  font-weight: 700;
+}
