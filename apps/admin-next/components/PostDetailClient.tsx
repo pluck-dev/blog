@@ -35,20 +35,29 @@ export default function PostDetailClient({ domain, postId }: { domain: string; p
   const designId = resolveDesign(post.design_template_id ?? tenant?.design_template_id);
   const design = DESIGN_SPECS[designId];
   const brand = tenant?.display_name ?? domain;
-  const articleStyle = { ["--accent" as string]: design.accent, ["--accent-soft" as string]: design.soft, background: design.pageBg };
+  const images = parseImages(post.images);
+  const heroImage = firstImage(images);
+  const articleStyle = { ["--accent" as string]: design.accent, ["--accent-soft" as string]: design.soft, ["--primary" as string]: design.accent, background: design.pageBg };
+  const contentHtml = prepareBodyHtml(renderedHtml, post.title, Boolean(heroImage));
+  const chips = designChips(designId);
   return <div>
     <div className="page-head"><div><Link href={`/t/${encodeURIComponent(domain)}`} className="eyebrow">← {domain}</Link><h1>{post.title}</h1><p className="muted mono">{post.slug}</p></div><div className="row"><button className="btn" onClick={() => navigator.clipboard.writeText(post.body_markdown)}>Markdown 복사</button><button className="btn" onClick={() => download(`${post.slug}.md`, post.body_markdown, "text/markdown")}>Markdown 다운로드</button><button className="btn primary" onClick={() => download(`${post.slug}.html`, renderStandaloneHtml({ post, tenant, domain, designId, bodyHtml: renderedHtml }), "text/html;charset=utf-8")}>HTML 다운로드</button></div></div>
     <div className="grid grid-2" style={{ alignItems: "start" }}>
-      <article className={`post-preview design-${designId}`} style={articleStyle}>
-        <header className="post-top-cta">
-          <span><b>{brand}</b> · {design.topCta}</span>
-          <span className="post-template-badge">{design.label}</span>
-        </header>
-        <div className="post-body" dangerouslySetInnerHTML={{ __html: renderedHtml }} />
-        <footer className="post-bottom-cta">
-          <p>{brand}에서 {design.bottomCta}</p>
-          <a className="btn primary" href="#">{design.bottomCta}</a>
-        </footer>
+      <article className={`post-preview preview-phone post-detail-template design-${designId}`} style={articleStyle}>
+        <div className="preview-top"><div><b>{brand}</b><p>{design.label}</p></div><span className="preview-cta">{design.topCta}</span></div>
+        <div className={`preview-hero post-hero ${heroImage ? "has-image" : ""}`}>
+          {heroImage && <img src={heroImage} alt={`${brand} 대표 이미지`} loading="lazy" />}
+          <span>{heroImage ? "academy image" : "blog main image"}</span>
+        </div>
+        <div className="preview-body post-body">
+          <div className="preview-meta"><span>{formatShortDate(post.generated_at)}</span><span>{designId}</span></div>
+          <h1 className="post-title">{post.title}</h1>
+          <div className="preview-divider" />
+          <div className="row post-chips">{chips.map((chip) => <span className="badge" key={chip}>{chip}</span>)}</div>
+          {post.meta_description && <p className="muted small post-lead">{post.meta_description}</p>}
+          <div className="post-content" dangerouslySetInnerHTML={{ __html: contentHtml }} />
+          <section className="preview-bottom-cta"><b>{brand}에서 {design.bottomCta}</b><a className="btn primary" href="#">{design.bottomCta}</a></section>
+        </div>
       </article>
       <aside className="grid"><div className="card card-pad"><h2>메타</h2><p><b>상태:</b> {post.status}</p><p><b>디자인:</b> {design.label} <span className="badge">{designId}</span></p><p><b>provider:</b> {post.provider ?? "-"} {post.model ?? ""}</p><p><b>비용:</b> {post.cost_usd ? `$${post.cost_usd.toFixed(3)}` : "-"}</p><p><b>생성:</b> {post.generated_at}</p><p className="muted">{post.meta_description}</p></div><div><h2>Markdown 원문</h2><pre className="codebox small">{post.body_markdown}</pre></div></aside>
     </div>
@@ -92,10 +101,42 @@ function escapeAttr(s: string) { return escapeHtml(s).replace(/'/g, "&#39;"); }
 function resolveDesign(value: string | null | undefined): DesignTemplateId {
   return value && value in DESIGN_SPECS ? value as DesignTemplateId : "editorial";
 }
+function firstImage(images: Record<string, string>): string | null {
+  return Object.entries(images).sort(([a], [b]) => a.localeCompare(b)).find(([, src]) => Boolean(src))?.[1] ?? null;
+}
+function prepareBodyHtml(html: string, title: string, promoteFirstImage: boolean): string {
+  let out = html.trim();
+  const escapedTitle = escapeRegExp(escapeHtml(title.trim()));
+  out = out.replace(new RegExp(`^<h1>\\s*${escapedTitle}\\s*</h1>\\s*`, "i"), "");
+  out = out.replace(/^<h1>[\s\S]*?<\/h1>\s*/i, "");
+  if (promoteFirstImage) out = out.replace(/<figure class="post-image">[\s\S]*?<\/figure>\s*/i, "");
+  return out;
+}
+function designChips(designId: DesignTemplateId): string[] {
+  const chips: Record<DesignTemplateId, string[]> = {
+    editorial: ["가이드", "FAQ", "정보성"],
+    comparison: ["비교 기준", "요약 표", "추천 케이스"],
+    "local-guide": ["지역 고민", "주변 선택 기준", "동선/접근성"],
+    checklist: ["요약", "준비 체크", "절차"],
+    conversion: ["문제 공감", "해결 기준", "상담"],
+    custom: ["상단 구성", "본문 규칙", "CTA 위치"],
+  };
+  return chips[designId];
+}
+function formatShortDate(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(2, 10).replace(/-/g, ".");
+  return date.toISOString().slice(2, 10).replace(/-/g, ".");
+}
+function escapeRegExp(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 function renderStandaloneHtml({ post, tenant, domain, designId, bodyHtml }: { post: PostDetail; tenant: Tenant | null; domain: string; designId: DesignTemplateId; bodyHtml: string }) {
   const design = DESIGN_SPECS[designId];
   const brand = tenant?.display_name ?? domain;
   const title = post.title || brand;
+  const heroImage = firstImage(parseImages(post.images));
+  const contentHtml = prepareBodyHtml(bodyHtml, post.title, Boolean(heroImage));
+  const chips = designChips(designId);
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -107,18 +148,23 @@ function renderStandaloneHtml({ post, tenant, domain, designId, bodyHtml }: { po
 </head>
 <body>
   <main class="post-page">
-    <article class="post-preview design-${designId}" style="--accent:${design.accent};--accent-soft:${design.soft};background:${design.pageBg}">
-      <header class="post-top-cta">
-        <span><b>${escapeHtml(brand)}</b> · ${escapeHtml(design.topCta)}</span>
-        <span class="post-template-badge">${escapeHtml(design.label)}</span>
-      </header>
-      <div class="post-body">
-${bodyHtml}
+    <article class="post-preview preview-phone post-detail-template design-${designId}" style="--accent:${design.accent};--accent-soft:${design.soft};--primary:${design.accent};background:${design.pageBg}">
+      <div class="preview-top"><div><b>${escapeHtml(brand)}</b><p>${escapeHtml(design.label)}</p></div><span class="preview-cta">${escapeHtml(design.topCta)}</span></div>
+      <div class="preview-hero post-hero ${heroImage ? "has-image" : ""}">
+        ${heroImage ? `<img src="${escapeAttr(heroImage)}" alt="${escapeAttr(`${brand} 대표 이미지`)}" loading="lazy" />` : ""}
+        <span>${heroImage ? "academy image" : "blog main image"}</span>
       </div>
-      <footer class="post-bottom-cta">
-        <p>${escapeHtml(brand)}에서 ${escapeHtml(design.bottomCta)}</p>
-        <a class="btn primary" href="#">${escapeHtml(design.bottomCta)}</a>
-      </footer>
+      <div class="preview-body post-body">
+        <div class="preview-meta"><span>${escapeHtml(formatShortDate(post.generated_at))}</span><span>${escapeHtml(designId)}</span></div>
+        <h1 class="post-title">${escapeHtml(post.title)}</h1>
+        <div class="preview-divider"></div>
+        <div class="row post-chips">${chips.map((chip) => `<span class="badge">${escapeHtml(chip)}</span>`).join("")}</div>
+        ${post.meta_description ? `<p class="muted small post-lead">${escapeHtml(post.meta_description)}</p>` : ""}
+        <div class="post-content">
+${contentHtml}
+        </div>
+        <section class="preview-bottom-cta"><b>${escapeHtml(brand)}에서 ${escapeHtml(design.bottomCta)}</b><a class="btn primary" href="#">${escapeHtml(design.bottomCta)}</a></section>
+      </div>
     </article>
   </main>
 </body>
@@ -126,5 +172,5 @@ ${bodyHtml}
 }
 function standaloneCss() {
   return `
-*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#f6f7fb;color:#111827;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.post-page{padding:32px 16px}.post-preview{width:min(920px,100%);margin:0 auto;border:1px solid #e5e7eb;border-radius:22px;overflow:hidden;box-shadow:0 24px 70px rgba(15,23,42,.12)}.post-top-cta{background:var(--accent);color:#fff;padding:20px 28px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-weight:800}.post-template-badge{display:inline-flex;align-items:center;border-radius:999px;background:#ffe94d;color:#111827;padding:8px 14px;font-size:14px;font-weight:900;white-space:nowrap}.post-body{padding:42px 56px 48px;line-height:1.82;font-size:18px;letter-spacing:-.015em}.post-body h1{font-size:42px;line-height:1.32;letter-spacing:-.055em;margin:0 0 30px;font-weight:950;color:#111827}.post-body h2{font-size:27px;line-height:1.4;margin:48px 0 18px;padding-bottom:12px;border-bottom:3px solid var(--accent);font-weight:900}.post-body h3{font-size:22px;margin:34px 0 12px}.post-body p{margin:0 0 24px}.post-body strong{font-weight:900;color:#020617}.post-body a{color:var(--accent);font-weight:800}.post-body code{border-radius:6px;background:#f1f5f9;padding:2px 6px}.cite{color:#64748b;font-size:.72em}.post-image{margin:34px 0}.post-image img{display:block;width:100%;max-height:540px;object-fit:cover;border-radius:18px;border:1px solid #e5e7eb;box-shadow:0 16px 36px rgba(15,23,42,.12)}.post-bottom-cta{padding:34px 56px 42px;text-align:center;background:var(--accent-soft);border-top:1px solid rgba(15,23,42,.06)}.post-bottom-cta p{margin:0 0 16px;font-size:20px;font-weight:900}.btn{display:inline-flex;align-items:center;justify-content:center;border-radius:14px;padding:12px 18px;text-decoration:none;font-weight:900}.btn.primary{background:var(--accent);color:#fff}.design-comparison .post-body h2{border-bottom-color:#2563eb}.design-comparison .post-body h2::before{content:"BEST ";color:#2563eb}.design-local-guide .post-top-cta{background:linear-gradient(135deg,#059669,#047857)}.design-local-guide .post-body h2{border-bottom-style:dashed}.design-local-guide .post-body h2::before{content:"지역 ";color:#059669}.design-checklist .post-body h2{display:flex;gap:10px;align-items:center}.design-checklist .post-body h2::before{content:"✓";display:inline-grid;place-items:center;width:30px;height:30px;border-radius:999px;background:#fef3c7;color:#92400e}.design-conversion .post-top-cta{background:#111827}.design-conversion .post-bottom-cta{background:#111827;color:#fff}.design-conversion .post-bottom-cta .btn.primary{background:#ffe94d;color:#111827}.design-custom .post-preview,.design-custom{border-style:dashed}@media(max-width:720px){.post-page{padding:0}.post-preview{border-radius:0}.post-top-cta{padding:16px 18px;align-items:flex-start;flex-direction:column}.post-body{padding:30px 22px;font-size:16px}.post-body h1{font-size:31px}.post-body h2{font-size:23px}.post-bottom-cta{padding:28px 22px}}`;
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#eef2f7;color:#111827;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.post-page{padding:32px 16px}.post-preview{width:min(760px,100%);margin:0 auto;border:1px solid #e5e7eb;border-radius:24px;overflow:hidden;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.14)}.preview-top{background:var(--accent);color:white;padding:22px 26px;display:flex;justify-content:space-between;gap:16px;align-items:center}.preview-top b{font-size:20px}.preview-top p{margin:4px 0 0;opacity:.86;font-size:14px}.preview-cta{border-radius:14px;background:#ffe94d;color:#111827;padding:10px 15px;font-size:14px;font-weight:900;white-space:nowrap}.preview-hero{margin:26px;aspect-ratio:16/9;border-radius:18px;background:linear-gradient(135deg,#d8e8ff,#f6f0ff 45%,#fff4a7);position:relative;overflow:hidden}.preview-hero img{width:100%;height:100%;object-fit:cover;display:block}.preview-hero span{position:absolute;left:18px;bottom:18px;border-radius:999px;background:rgba(255,255,255,.9);padding:7px 12px;font-size:12px;color:var(--accent);font-weight:900}.preview-body{padding:0 34px 34px}.preview-meta{display:flex;justify-content:center;gap:18px;color:#94a3b8;font-size:12px;font-weight:800}.post-title{text-align:center;font-size:34px;line-height:1.28;letter-spacing:-.055em;margin:22px 0 18px;font-weight:950}.preview-divider{height:9px;border-radius:999px;background:#ffe94d;margin:16px 0 22px}.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.post-chips{justify-content:flex-start;margin-bottom:24px}.badge{display:inline-flex;align-items:center;border-radius:999px;padding:7px 12px;background:#f1f5f9;color:#334155;font-size:13px;font-weight:900}.muted{color:#64748b}.small{font-size:14px}.post-lead{margin:0 0 24px}.post-content{display:grid;gap:18px}.post-content p,.post-content h2,.post-content h3,.post-content .post-image{border-radius:16px;background:#f8fafc;padding:18px;margin:0}.post-content h2{font-size:22px;line-height:1.35;font-weight:900;border-left:5px solid var(--accent)}.post-content h3{font-size:18px}.post-content p{line-height:1.75;font-size:16px}.post-content strong{font-weight:900;color:#020617}.post-content a{color:var(--accent);font-weight:800}.post-content code{border-radius:6px;background:#e2e8f0;padding:2px 6px}.cite{color:#64748b;font-size:.72em}.post-image img{display:block;width:100%;max-height:460px;object-fit:cover;border-radius:14px}.preview-bottom-cta{margin-top:22px;border:2px solid #ffe94d;border-radius:18px;background:#fafaf7;padding:20px;text-align:center;display:grid;gap:14px}.btn{display:inline-flex;align-items:center;justify-content:center;border-radius:14px;padding:12px 18px;text-decoration:none;font-weight:900}.btn.primary{background:var(--accent);color:#fff}.design-comparison .preview-divider{background:repeating-linear-gradient(90deg,var(--accent) 0,var(--accent) 22px,#ffe94d 22px,#ffe94d 36px)}.design-local-guide .preview-divider{border-top:2px dashed rgba(81,50,215,.45);background:transparent;height:16px}.design-checklist .preview-divider{height:auto;padding:8px;border:1px solid #ffe94d;background:#fffacc;color:var(--accent);text-align:center;font-size:10px;font-weight:900;letter-spacing:.16em}.design-checklist .preview-divider::before{content:"CHECK BEFORE RESERVATION"}.design-conversion .preview-top{background:#111827}.design-conversion .preview-divider{background:linear-gradient(90deg,var(--accent),#ffe94d,var(--accent))}.design-conversion .preview-bottom-cta{background:#111827;color:#fff}.design-conversion .preview-bottom-cta .btn.primary{background:#ffe94d;color:#111827}@media(max-width:720px){.post-page{padding:0}.post-preview{border-radius:0}.preview-top{padding:18px;align-items:flex-start;flex-direction:column}.preview-hero{margin:18px}.preview-body{padding:0 22px 28px}.post-title{font-size:29px}.post-content p{font-size:15px}}`;
 }
