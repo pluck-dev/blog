@@ -117,7 +117,7 @@ export class WorkerService {
       const imageKey = firstImageKey(a, i + 1);
       if (imageKey.url) images[imageKey.key] = imageKey.url;
       const parts = [`[${i + 1}] ${a.name}`];
-      for (const [label, key] of [["주소", "address"], ["수강료", "price"], ["셔틀", "shuttle"], ["영업시간", "hours"], ["합격률", "pass_rate"], ["전화", "phone"], ["대표전화", "vphone"], ["후기", "review"], ["SEO 설명", "seo_description"], ["SEO 키워드", "seo_keywords"], ["유형", "academy_type"]] as const) if (a[key]) parts.push(`${label}: ${a[key]}`);
+      for (const [label, key] of [["주소", "address"], ["수강료", "price"], ["셔틀", "shuttle"], ["영업시간", "hours"], ["합격률", "pass_rate"], ["전화", "phone"], ["대표전화", "vphone"], ["후기", "review"], ["SEO 설명", "seo_description"], ["SEO 키워드", "seo_keywords"], ["유형", "academy_type"], ["지역 중심 기준 거리", "distance_km"]] as const) if (a[key]) parts.push(`${label}: ${key === "distance_km" ? `약 ${a[key]}km` : a[key]}`);
       if (a.latitude && a.longitude) parts.push(`좌표: ${a.latitude}, ${a.longitude}`);
       if (imageKey.url) parts.push(`사진 슬롯: [IMAGE:${imageKey.key}]`);
       return parts.join(" / ");
@@ -147,17 +147,28 @@ export class WorkerService {
     const exact = this.db.listAcademies(tenant, { region, limit });
     if (exact.length) return exact.slice(0, limit);
     const all = this.db.listAcademies(tenant, { limit: 5000 });
+    const targetRegion = this.db.getSeoRegion(tenant, region);
+    const targetLat = finiteNumber(targetRegion?.latitude);
+    const targetLng = finiteNumber(targetRegion?.longitude);
     const directMatches = all.map((a) => {
       const addr = String(a.address || "");
       const rowRegion = String(a.region || "");
       let score = Number.POSITIVE_INFINITY;
       if (rowRegion === region) score = 0;
       else if (addr.includes(region)) score = 1;
-      return { academy: a, score };
+      else if (sameAdministrativePrefix(rowRegion, region) || sameAdministrativePrefix(addr, region)) score = 3;
+      return { academy: a, score, distanceKm: academyDistanceKm(a, targetLat, targetLng) };
     }).filter((r) => Number.isFinite(r.score));
+    const distanceMatches = targetLat !== null && targetLng !== null
+      ? all
+        .map((academy) => ({ academy, score: 2, distanceKm: academyDistanceKm(academy, targetLat, targetLng) }))
+        .filter((r) => r.distanceKm !== null)
+        .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0))
+        .slice(0, Math.max(limit * 3, 10))
+      : [];
     const seen = new Set<string>();
-    return directMatches
-      .sort((a, b) => a.score - b.score || String(a.academy.name).localeCompare(String(b.academy.name), "ko"))
+    return [...directMatches, ...distanceMatches]
+      .sort((a, b) => a.score - b.score || (a.distanceKm ?? Number.POSITIVE_INFINITY) - (b.distanceKm ?? Number.POSITIVE_INFINITY) || String(a.academy.name).localeCompare(String(b.academy.name), "ko"))
       .filter((r) => {
         const key = String(r.academy.external_id || r.academy.id || r.academy.name);
         if (seen.has(key)) return false;
@@ -165,7 +176,7 @@ export class WorkerService {
         return true;
       })
       .slice(0, limit)
-      .map((r) => r.academy);
+      .map((r) => r.distanceKm === null ? r.academy : { ...r.academy, distance_km: Math.round((r.distanceKm ?? 0) * 10) / 10 });
   }
 
   private processDedup(tenant: string, payload: Row): Row {
@@ -284,6 +295,42 @@ function firstImageKey(row: Row, index: number): { key: string; url: string } {
   const photos = safeJson(row.photos, []);
   const url = Array.isArray(photos) ? String(photos[0] || "").trim() : "";
   return { key: `academy_${index}`, url: url || String(row.thumb_url || "").trim() };
+}
+
+function academyDistanceKm(row: Row, targetLat: number | null, targetLng: number | null): number | null {
+  const lat = finiteNumber(row.latitude);
+  const lng = finiteNumber(row.longitude);
+  if (targetLat === null || targetLng === null || lat === null || lng === null) return null;
+  return haversineKm(targetLat, targetLng, lat, lng);
+}
+
+function finiteNumber(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const radiusKm = 6371;
+  const dLat = degreesToRadians(lat2 - lat1);
+  const dLng = degreesToRadians(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(degreesToRadians(lat1)) * Math.cos(degreesToRadians(lat2)) * Math.sin(dLng / 2) ** 2;
+  return radiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function degreesToRadians(value: number): number {
+  return value * Math.PI / 180;
+}
+
+function sameAdministrativePrefix(left: string, right: string): boolean {
+  const l = administrativeTokens(left);
+  const r = administrativeTokens(right);
+  if (!l.length || !r.length || l[0] !== r[0]) return false;
+  return Boolean((l[1] && r[1] && l[1] === r[1]) || (l[2] && r[2] && l[2] === r[2]));
+}
+
+function administrativeTokens(value: string): string[] {
+  return String(value || "").split(/\s+/).filter((token) => /(?:특별시|광역시|특별자치시|특별자치도|도|시|군|구)$/u.test(token));
 }
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
@@ -431,6 +478,7 @@ ${facts || "없음"}
 재작성 규칙:
 - 제목/지역/후보 학원/이미지는 검증된 자료와 반드시 일치시킨다.
 - 후보 수보다 큰 숫자, 다른 지역 후보, 없는 가격·합격률·셔틀·후기·3일 합격 주장을 만들지 않는다.
+- 주소가 주제 지역과 다르지만 "지역 중심 기준 거리"가 있는 후보는 해당 지역 안의 학원이 아니라 "인근 후보"로만 구분해 설명한다.
 - 첫 줄은 '# ' 제목, H2 6개 이상, 3,000~5,000자 이내.
 - 후보 수와 관계없이 Markdown 표 1개를 반드시 포함한다. 후보가 1곳이면 비교표 대신 주소/연락처/과정/상담 확인점을 담은 요약표로 작성한다.
 - 체크리스트와 FAQ 3~5개를 포함한다.
@@ -467,7 +515,8 @@ ${facts || "없음"}
 
 절대 원칙:
 - API 자료는 글 재료일 뿐이다. 주 키워드/지역/제목과 직접 맞는 학원만 본문 후보·표·사진·CTA에 사용한다.
-- 다른 시·군·구, 다른 생활권, 주변 지역 학원은 후보로 섞지 말 것. 후보가 부족하면 부족한 그대로 설명한다.
+- 주소가 주제 지역과 일치하는 후보를 먼저 소개한다. 주소가 다르지만 "지역 중심 기준 거리"가 있는 후보는 해당 지역 안의 학원이 아니라 "인근/주변 후보"로 분리해 설명한다.
+- 다른 시·군·구 후보를 주제 지역 내부 학원처럼 쓰지 말 것. 후보가 부족하면 부족한 그대로 설명한다.
 - 검증된 자료에 없는 학원명·사진·주소·전화번호·가격·셔틀·합격률·3일 합격·지역화폐·후기는 절대 생성하지 말 것.
 - 제공된 후보 수보다 큰 숫자를 제목/본문에 쓰지 말 것. 예: 후보가 2곳이면 '3곳', 'BEST5' 금지.
 - 출처번호 [1], [2]를 본문에 노출하지 말 것. 근거는 문장 안에 자연스럽게 녹인다.
