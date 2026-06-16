@@ -92,6 +92,8 @@ export interface Academy {
   phone: string | null;
   vphone?: string | null;
   review: string | null;
+  review_json?: string | null;
+  blog_reviews?: string | null;
   seo_title?: string | null;
   seo_keywords?: string | null;
   seo_description?: string | null;
@@ -153,4 +155,11 @@ export interface TenantDetailPayload {
   posts?: PostSummary[];
   academies?: Academy[];
   jobs?: Job[];
+}
+
+export interface SlotListPayload {
+  count: number;
+  total: number;
+  slot_counts: SlotCounts;
+  items: Slot[];
 }

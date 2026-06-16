@@ -7,18 +7,25 @@ export function renderMarkdown(markdown: string, images: Record<string, string> 
 }
 
 export function stripPseudoSlotsForRender(markdown: string): string {
-  return markdown.split(/\r?\n/).filter((line) => !/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(line.trim())).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return markdown.split(/\r?\n/)
+    .filter((line) => !/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE|INTERNAL_LINK)_SLOT:[^\]]+\]$/i.test(line.trim()))
+    .join("\n")
+    .replace(/\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE|INTERNAL_LINK)_SLOT:[^\]]+\]/gi, "")
+    .replace(/\[INTERNAL_LINK:[^\]]+\]/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function ensureImageSlotsForRender(markdown: string, images: Record<string, string>): string {
   const keys = Object.keys(images).sort((a, b) => a.localeCompare(b));
   if (!keys.length || /\[IMAGE:[A-Za-z0-9_-]+\]/.test(markdown)) return markdown;
-  const insertions = keys.slice(0, Math.min(3, keys.length)).map((key) => `[IMAGE:${key}]`);
+  const insertions = keys.slice(0, Math.min(4, keys.length)).map((key) => `[IMAGE:${key}]`);
   const blocks = markdown.split(/\n{2,}/);
   if (blocks.length <= 2) return `${markdown}\n\n${insertions.join("\n\n")}`.trim();
   blocks.splice(Math.min(3, blocks.length), 0, insertions[0]!);
   if (insertions[1]) blocks.splice(Math.max(5, Math.floor(blocks.length * 0.55)), 0, insertions[1]);
   if (insertions[2]) blocks.splice(Math.max(7, Math.floor(blocks.length * 0.75)), 0, insertions[2]);
+  if (insertions[3]) blocks.splice(Math.max(9, Math.floor(blocks.length * 0.88)), 0, insertions[3]);
   return blocks.join("\n\n").trim();
 }
 

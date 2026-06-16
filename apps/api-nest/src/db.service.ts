@@ -2,7 +2,7 @@ import { Injectable, OnModuleInit } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { AXES, type AxisName, type JobKind } from "./constants.js";
+import { AXES, DRIVING_ORIGINAL_TEMPLATE_IDS, type AxisName, type JobKind } from "./constants.js";
 
 // node:sqlite is available in the project's Node 25 runtime and keeps the Nest port dependency-light.
 const sqlite = await import("node:sqlite" as string) as any;
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS tenants (
   theme TEXT NOT NULL DEFAULT 'clean' CHECK (theme IN ('clean','modern','pro')),
   brand_color TEXT DEFAULT '#0066ff',
   logo_url TEXT,
-  templates_enabled TEXT NOT NULL DEFAULT '["T01","T03","T05","T07"]',
+  templates_enabled TEXT NOT NULL DEFAULT '["T01","T03","T04","T05","T06","T07","T08","T09","T10","T11","T12","T13","T14","T15"]',
   design_template_id TEXT NOT NULL DEFAULT 'editorial',
   custom_design_templates TEXT,
   content_brief TEXT,
@@ -115,6 +115,8 @@ CREATE TABLE IF NOT EXISTS academies (
   phone TEXT,
   vphone TEXT,
   review TEXT,
+  review_json TEXT,
+  blog_reviews TEXT,
   seo_title TEXT,
   seo_keywords TEXT,
   seo_description TEXT,
@@ -169,6 +171,8 @@ export class DbService implements OnModuleInit {
     if (!tenantCols.has("design_template_id")) this.db.exec("ALTER TABLE tenants ADD COLUMN design_template_id TEXT NOT NULL DEFAULT 'editorial'");
     if (!tenantCols.has("custom_design_templates")) this.db.exec("ALTER TABLE tenants ADD COLUMN custom_design_templates TEXT");
     if (!tenantCols.has("content_brief")) this.db.exec("ALTER TABLE tenants ADD COLUMN content_brief TEXT");
+    this.run(`UPDATE tenants SET templates_enabled=?
+       WHERE vertical='driving' AND templates_enabled IN ('["T01","T03","T05","T07"]', '["T01","T03","T04","T05","T06","T07"]')`, [JSON.stringify(DRIVING_ORIGINAL_TEMPLATE_IDS)]);
     const postCols = new Set(this.all("PRAGMA table_info(posts)").map((r) => r.name));
     if (!postCols.has("images")) this.db.exec("ALTER TABLE posts ADD COLUMN images TEXT");
     if (!postCols.has("design_template_id")) {
@@ -187,6 +191,8 @@ export class DbService implements OnModuleInit {
       ["thumb_url", "ALTER TABLE academies ADD COLUMN thumb_url TEXT"],
       ["photos", "ALTER TABLE academies ADD COLUMN photos TEXT"],
       ["academy_type", "ALTER TABLE academies ADD COLUMN academy_type TEXT"],
+      ["review_json", "ALTER TABLE academies ADD COLUMN review_json TEXT"],
+      ["blog_reviews", "ALTER TABLE academies ADD COLUMN blog_reviews TEXT"],
       ["synced_at", "ALTER TABLE academies ADD COLUMN synced_at TEXT"],
     ];
     for (const [col, sql] of academyMigrations) if (!academyCols.has(col)) this.db.exec(sql);
@@ -250,12 +256,64 @@ export class DbService implements OnModuleInit {
     });
   }
 
-  listSlots(tenant: string, opts: { status?: string; template?: string; limit?: number } = {}): Row[] {
-    let sql = "SELECT * FROM slots WHERE tenant=?"; const args: any[] = [tenant];
-    if (opts.status) { sql += " AND status=?"; args.push(opts.status); }
-    if (opts.template) { sql += " AND template_id=?"; args.push(opts.template); }
-    sql += " ORDER BY priority_score DESC, slot_id LIMIT ?"; args.push(opts.limit ?? 200);
-    return this.all(sql, args);
+  listSlots(tenant: string, opts: { status?: string; template?: string; q?: string; limit?: number; offset?: number } = {}): Row[] {
+    const { where, args } = this.slotFilterClause(tenant, opts);
+    const limit = Math.max(1, Math.min(2000, Math.trunc(Number(opts.limit ?? 200))));
+    const offset = Math.max(0, Math.trunc(Number(opts.offset ?? 0)));
+    return this.all(`SELECT * FROM slots ${where} ORDER BY priority_score DESC, slot_id LIMIT ? OFFSET ?`, [...args, limit, offset]);
+  }
+  countSlotsFiltered(tenant: string, opts: { status?: string; template?: string; q?: string } = {}): number {
+    const { where, args } = this.slotFilterClause(tenant, opts);
+    return Number(this.get(`SELECT COUNT(*) AS n FROM slots ${where}`, args)?.n ?? 0);
+  }
+  private slotFilterClause(tenant: string, opts: { status?: string; template?: string; q?: string }): { where: string; args: any[] } {
+    let where = "WHERE tenant=?"; const args: any[] = [tenant];
+    if (opts.status) { where += " AND status=?"; args.push(opts.status); }
+    if (opts.template) { where += " AND template_id=?"; args.push(opts.template); }
+    const q = String(opts.q || "").trim().toLowerCase();
+    if (q) {
+      const like = `%${q}%`;
+      where += ` AND (
+        lower(primary_keyword) LIKE ? OR lower(slot_id) LIKE ? OR lower(COALESCE(region,'')) LIKE ?
+        OR lower(COALESCE(persona,'')) LIKE ? OR lower(COALESCE(intent,'')) LIKE ?
+        OR lower(COALESCE(modifier_1,'')) LIKE ? OR lower(COALESCE(modifier_2,'')) LIKE ?
+        OR lower(COALESCE(entity_id,'')) LIKE ?
+      )`;
+      args.push(like, like, like, like, like, like, like, like);
+    }
+    return { where, args };
+  }
+  selectSlotsForBatch(tenant: string, opts: { q?: string; template?: string; limit?: number; balanced?: boolean } = {}): Row[] {
+    const { where, args } = this.slotFilterClause(tenant, { status: "planned", template: opts.template, q: opts.q });
+    const candidates = this.all(`SELECT slot_id, region, template_id, primary_keyword, priority_score FROM slots ${where} ORDER BY priority_score DESC, slot_id LIMIT ?`, [...args, 10000]);
+    const limit = Math.max(1, Math.min(500, Math.trunc(Number(opts.limit ?? 10))));
+    const groups = new Map<string, Row[]>();
+    for (const row of candidates) {
+      const key = opts.balanced ? String(row.region || "전국") : String(row.template_id || "기타");
+      const bucket = groups.get(key) || [];
+      bucket.push(row);
+      groups.set(key, bucket);
+    }
+    const keys = [...groups.keys()].sort((a, b) => (groups.get(b)?.[0]?.priority_score ?? 0) - (groups.get(a)?.[0]?.priority_score ?? 0));
+    const picked: Row[] = [];
+    const seenTopic = new Set<string>();
+    while (picked.length < limit && keys.length) {
+      let progressed = false;
+      for (const key of [...keys]) {
+        const bucket = groups.get(key) || [];
+        let next: Row | undefined;
+        while (bucket.length) {
+          const candidate = bucket.shift()!;
+          const topic = `${candidate.region || ""}::${candidate.primary_keyword || ""}`;
+          if (!seenTopic.has(topic)) { next = candidate; seenTopic.add(topic); break; }
+        }
+        if (next) { picked.push(next); progressed = true; }
+        if (!bucket.length) keys.splice(keys.indexOf(key), 1);
+        if (picked.length >= limit) break;
+      }
+      if (!progressed) break;
+    }
+    return picked;
   }
   countSlots(tenant: string): Record<string, number> {
     const out: Record<string, number> = { planned: 0, in_progress: 0, published: 0, failed: 0, pruned: 0 };
@@ -328,10 +386,10 @@ export class DbService implements OnModuleInit {
     for (const r of rows) {
       const name = String(r.name || "").trim(); if (!name) continue;
       const extra = typeof r.extra === "object" && r.extra !== null ? JSON.stringify(r.extra) : (r.extra ?? null);
-      this.run(`INSERT INTO academies (id, tenant, external_id, region, name, address, price, shuttle, hours, pass_rate, phone, vphone, review, seo_title, seo_keywords, seo_description, latitude, longitude, thumb_url, photos, academy_type, extra, source_name, source_url, synced_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(tenant, region, name) DO UPDATE SET address=excluded.address, price=excluded.price, shuttle=excluded.shuttle, hours=excluded.hours, pass_rate=excluded.pass_rate, phone=excluded.phone, vphone=excluded.vphone, review=excluded.review, seo_title=excluded.seo_title, seo_keywords=excluded.seo_keywords, seo_description=excluded.seo_description, latitude=excluded.latitude, longitude=excluded.longitude, thumb_url=excluded.thumb_url, photos=excluded.photos, academy_type=excluded.academy_type, extra=excluded.extra, source_name=excluded.source_name, source_url=excluded.source_url, synced_at=excluded.synced_at`,
-        [randomUUID(), tenant, r.external_id ?? null, String(r.region || "").trim(), name, r.address ?? null, r.price ?? null, r.shuttle ?? null, r.hours ?? null, r.pass_rate ?? null, r.phone ?? null, r.vphone ?? null, r.review ?? null, r.seo_title ?? null, r.seo_keywords ?? null, r.seo_description ?? null, r.latitude ?? null, r.longitude ?? null, r.thumb_url ?? null, encodeJson(r.photos), r.academy_type ?? null, extra, r.source_name ?? null, r.source_url ?? null, r.synced_at ?? null]);
+      this.run(`INSERT INTO academies (id, tenant, external_id, region, name, address, price, shuttle, hours, pass_rate, phone, vphone, review, review_json, blog_reviews, seo_title, seo_keywords, seo_description, latitude, longitude, thumb_url, photos, academy_type, extra, source_name, source_url, synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(tenant, region, name) DO UPDATE SET address=excluded.address, price=excluded.price, shuttle=excluded.shuttle, hours=excluded.hours, pass_rate=excluded.pass_rate, phone=excluded.phone, vphone=excluded.vphone, review=excluded.review, review_json=excluded.review_json, blog_reviews=excluded.blog_reviews, seo_title=excluded.seo_title, seo_keywords=excluded.seo_keywords, seo_description=excluded.seo_description, latitude=excluded.latitude, longitude=excluded.longitude, thumb_url=excluded.thumb_url, photos=excluded.photos, academy_type=excluded.academy_type, extra=excluded.extra, source_name=excluded.source_name, source_url=excluded.source_url, synced_at=excluded.synced_at`,
+        [randomUUID(), tenant, r.external_id ?? null, String(r.region || "").trim(), name, r.address ?? null, r.price ?? null, r.shuttle ?? null, r.hours ?? null, r.pass_rate ?? null, r.phone ?? null, r.vphone ?? null, r.review ?? null, encodeJson(r.review_json ?? r.reviews), encodeJson(r.blog_reviews), r.seo_title ?? null, r.seo_keywords ?? null, r.seo_description ?? null, r.latitude ?? null, r.longitude ?? null, r.thumb_url ?? null, encodeJson(r.photos), r.academy_type ?? null, extra, r.source_name ?? null, r.source_url ?? null, r.synced_at ?? null]);
       n += 1;
     }
     return n;
@@ -350,16 +408,19 @@ export class DbService implements OnModuleInit {
         const region = bestRegionForAddress(address, regions) || fallbackRegionFromAddress(address);
         if (!region) warnings.push(`${name}: 주소에서 지역을 추정하지 못했습니다.`);
         const photos = Array.isArray(row.photos) ? row.photos.map((v) => String(v || "").trim()).filter(Boolean) : [];
+        const reviews = normalizeDrivingplusReviews(row.reviews);
+        const blogReviews = normalizeDrivingplusBlogReviews(row.blogReviews);
+        const reviewText = reviewSummaryText(reviews);
         const existing = this.get("SELECT id FROM academies WHERE tenant=? AND external_id=?", [tenant, externalId]);
         if (existing) {
-          this.run(`UPDATE academies SET region=?, name=?, address=?, phone=?, vphone=?, seo_title=?, seo_keywords=?, seo_description=?, latitude=?, longitude=?, thumb_url=?, photos=?, academy_type=?, extra=?, source_name=?, source_url=?, synced_at=? WHERE id=? AND tenant=?`,
-            [region, name, address, nullableText(row.phone), nullableText(row.vphone), nullableText(row.seoTitle), nullableText(row.seoKeywords), nullableText(row.seoDescription), nullableNumber(row.roadLatitude), nullableNumber(row.roadLongitude), nullableText(row.thumbSavePath), JSON.stringify(photos), nullableText(row.type), JSON.stringify({ drivingplus_id: externalId }), "DrivingPlus", `https://api-dev.drivingplus.me:18104/v1/academy/get-all-academy`, syncedAt, existing.id, tenant]);
+          this.run(`UPDATE academies SET region=?, name=?, address=?, phone=?, vphone=?, review=?, review_json=?, blog_reviews=?, seo_title=?, seo_keywords=?, seo_description=?, latitude=?, longitude=?, thumb_url=?, photos=?, academy_type=?, extra=?, source_name=?, source_url=?, synced_at=? WHERE id=? AND tenant=?`,
+            [region, name, address, nullableText(row.phone), nullableText(row.vphone), reviewText, JSON.stringify(reviews), JSON.stringify(blogReviews), nullableText(row.seoTitle), nullableText(row.seoKeywords), nullableText(row.seoDescription), nullableNumber(row.roadLatitude), nullableNumber(row.roadLongitude), nullableText(row.thumbSavePath), JSON.stringify(photos), nullableText(row.type), JSON.stringify({ drivingplus_id: externalId, review_count: reviews.length, blog_review_count: blogReviews.length }), "DrivingPlus", `https://api-dev.drivingplus.me:18104/v1/academy/get-all-academy`, syncedAt, existing.id, tenant]);
         } else {
-          this.run(`INSERT INTO academies (id, tenant, external_id, region, name, address, phone, vphone, seo_title, seo_keywords, seo_description, latitude, longitude, thumb_url, photos, academy_type, extra, source_name, source_url, synced_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(tenant, region, name) DO UPDATE SET external_id=excluded.external_id, address=excluded.address, phone=excluded.phone, vphone=excluded.vphone, seo_title=excluded.seo_title, seo_keywords=excluded.seo_keywords, seo_description=excluded.seo_description, latitude=excluded.latitude, longitude=excluded.longitude, thumb_url=excluded.thumb_url, photos=excluded.photos, academy_type=excluded.academy_type, extra=excluded.extra, source_name=excluded.source_name, source_url=excluded.source_url, synced_at=excluded.synced_at
+          this.run(`INSERT INTO academies (id, tenant, external_id, region, name, address, phone, vphone, review, review_json, blog_reviews, seo_title, seo_keywords, seo_description, latitude, longitude, thumb_url, photos, academy_type, extra, source_name, source_url, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(tenant, region, name) DO UPDATE SET external_id=excluded.external_id, address=excluded.address, phone=excluded.phone, vphone=excluded.vphone, review=excluded.review, review_json=excluded.review_json, blog_reviews=excluded.blog_reviews, seo_title=excluded.seo_title, seo_keywords=excluded.seo_keywords, seo_description=excluded.seo_description, latitude=excluded.latitude, longitude=excluded.longitude, thumb_url=excluded.thumb_url, photos=excluded.photos, academy_type=excluded.academy_type, extra=excluded.extra, source_name=excluded.source_name, source_url=excluded.source_url, synced_at=excluded.synced_at
             WHERE academies.external_id IS NULL OR academies.external_id=excluded.external_id`,
-            [randomUUID(), tenant, externalId, region, name, address, nullableText(row.phone), nullableText(row.vphone), nullableText(row.seoTitle), nullableText(row.seoKeywords), nullableText(row.seoDescription), nullableNumber(row.roadLatitude), nullableNumber(row.roadLongitude), nullableText(row.thumbSavePath), JSON.stringify(photos), nullableText(row.type), JSON.stringify({ drivingplus_id: externalId }), "DrivingPlus", `https://api-dev.drivingplus.me:18104/v1/academy/get-all-academy`, syncedAt]);
+            [randomUUID(), tenant, externalId, region, name, address, nullableText(row.phone), nullableText(row.vphone), reviewText, JSON.stringify(reviews), JSON.stringify(blogReviews), nullableText(row.seoTitle), nullableText(row.seoKeywords), nullableText(row.seoDescription), nullableNumber(row.roadLatitude), nullableNumber(row.roadLongitude), nullableText(row.thumbSavePath), JSON.stringify(photos), nullableText(row.type), JSON.stringify({ drivingplus_id: externalId, review_count: reviews.length, blog_review_count: blogReviews.length }), "DrivingPlus", `https://api-dev.drivingplus.me:18104/v1/academy/get-all-academy`, syncedAt]);
         }
         upserted++;
       }
@@ -455,6 +516,89 @@ function nullableNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function normalizeDrivingplusReviews(value: unknown): Row[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((raw) => {
+    const row = raw && typeof raw === "object" ? raw as Row : {};
+    const content = cleanText(row.content);
+    const point = nullableNumber(row.point);
+    if (!isPositiveReviewText(content, point)) return null;
+    return {
+      id: nullableNumber(row.id),
+      author: nullableText(row.author),
+      point,
+      content: content.slice(0, 500),
+      date: nullableText(row.date),
+    };
+  }).filter(Boolean).slice(0, 10) as Row[];
+}
+
+function normalizeDrivingplusBlogReviews(value: unknown): Row[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((raw) => {
+    const row = raw && typeof raw === "object" ? raw as Row : {};
+    const title = cleanText(row.title);
+    const content = cleanText(row.content);
+    const link = nullableText(row.link);
+    if (!title || !link) return null;
+    if (!isPositiveReviewText(`${title} ${content}`, null)) return null;
+    return {
+      title: title.slice(0, 160),
+      content: content ? content.slice(0, 500) : null,
+      link,
+      postdate: nullableText(row.postdate),
+      images: Array.isArray(row.images) ? row.images.map((v) => String(v || "").trim()).filter(Boolean).slice(0, 3) : [],
+    };
+  }).filter(Boolean).slice(0, 10) as Row[];
+}
+
+function reviewSummaryText(reviews: Row[]): string | null {
+  const lines = reviews
+    .map((review) => {
+      const point = review.point ? `${review.point}점 ` : "";
+      return `${point}${String(review.content || "").trim()}`.trim();
+    })
+    .filter(Boolean)
+    .slice(0, 3);
+  return lines.length ? lines.join("\n") : null;
+}
+
+function cleanText(value: unknown): string {
+  return String(value ?? "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/#[0-9A-Za-z_가-힣]+/g, " ")
+    .replace(/&gt;/g, ">")
+    .replace(/&lt;/g, "<")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isUsefulKoreanReview(text: string): boolean {
+  if (!text || text.length < 12) return false;
+  const korean = (text.match(/[가-힣]/g) || []).length;
+  const digits = (text.match(/\d/g) || []).length;
+  if (korean < 6) return false;
+  if (digits > korean + 8) return false;
+  if (/^(\d|[ㅋㅎㅠㅜ\s.,!?])+$/u.test(text)) return false;
+  return true;
+}
+
+const NEGATIVE_REVIEW_RE = /불친절|최악|비추|별로|환불|짜증|화남|불만|실망|안\s*좋|안좋|문제\s*있|대기\s*길|너무\s*늦|엉망|후회/u;
+const POSITIVE_REVIEW_RE = /친절|합격|좋|추천|감사|만족|편하|꼼꼼|잘\s*가르|빠르|한\s*번에|한번에|쉬웠|도움|최고|강추|자세히|설명|안심|쾌적|체계/u;
+const RISKY_REVIEW_CLAIM_RE = /\d+\s*일\s*(?:만|컷|완성)|삼\s*일\s*(?:만|컷|완성)|하루\s*만|당일\s*합격|무조건|보장|\d{2,3}\s*만\s*(?:원|뤈|웜)?|\d{3},\d{3}\s*원/u;
+
+function isPositiveReviewText(text: string, point: number | null): boolean {
+  if (!isUsefulKoreanReview(text)) return false;
+  if (NEGATIVE_REVIEW_RE.test(text)) return false;
+  if (RISKY_REVIEW_CLAIM_RE.test(text)) return false;
+  if (point !== null && point !== undefined && point < 4) return false;
+  if (point !== null && point !== undefined && point >= 4) return true;
+  return POSITIVE_REVIEW_RE.test(text);
 }
 
 function bestRegionForAddress(address: string | null, regions: Row[]): string | null {

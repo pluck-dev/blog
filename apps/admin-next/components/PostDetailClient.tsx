@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { formatDateTime, formatShortDate } from "@/lib/date";
 import type { DesignTemplateId, PostDetail, Tenant } from "@/lib/types";
 
 const DESIGN_SPECS: Record<DesignTemplateId, { accent: string; soft: string; pageBg: string; topCta: string; bottomCta: string; label: string }> = {
@@ -57,7 +58,7 @@ export default function PostDetailClient({ domain, postId }: { domain: string; p
           <section className="preview-bottom-cta"><b>{brand}에서 {design.bottomCta}</b><a className="btn primary" href="#">{design.bottomCta}</a></section>
         </div>
       </article>
-      <aside className="grid"><div className="card card-pad"><h2>메타</h2><p><b>상태:</b> {post.status}</p><p><b>디자인:</b> {design.label} <span className="badge">{designId}</span></p><p><b>provider:</b> {post.provider ?? "-"} {post.model ?? ""}</p><p><b>비용:</b> {post.cost_usd ? `$${post.cost_usd.toFixed(3)}` : "-"}</p><p><b>생성:</b> {post.generated_at}</p><p className="muted">{post.meta_description}</p><p className="muted small">원문은 상단의 복사/다운로드 버튼으로 확인합니다. 상세 화면에는 발행 디자인만 표시합니다.</p></div></aside>
+      <aside className="grid"><div className="card card-pad"><h2>메타</h2><p><b>상태:</b> {post.status}</p><p><b>디자인:</b> {design.label} <span className="badge">{designId}</span></p><p><b>provider:</b> {post.provider ?? "-"} {post.model ?? ""}</p><p><b>비용:</b> {post.cost_usd ? `$${post.cost_usd.toFixed(3)}` : "-"}</p><p><b>생성:</b> {formatDateTime(post.generated_at)}</p><p className="muted">{post.meta_description}</p><p className="muted small">원문은 상단의 복사/다운로드 버튼으로 확인합니다. 상세 화면에는 발행 디자인만 표시합니다.</p></div></aside>
     </div>
   </div>;
 }
@@ -192,12 +193,6 @@ function designChips(designId: DesignTemplateId): string[] {
     custom: ["상단 구성", "본문 규칙", "CTA 위치"],
   };
   return chips[designId];
-}
-function formatShortDate(value: string | null | undefined): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value).slice(2, 10).replace(/-/g, ".");
-  return date.toISOString().slice(2, 10).replace(/-/g, ".");
 }
 function escapeRegExp(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 function renderStandaloneHtml({ post, tenant, domain, designId, bodyHtml }: { post: PostDetail; tenant: Tenant | null; domain: string; designId: DesignTemplateId; bodyHtml: string }) {

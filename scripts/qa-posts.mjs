@@ -7,7 +7,9 @@ const includeAll = args.includes('--all');
 const dbPath = args.find((arg) => arg !== '--all') || 'data/admin.db';
 const db = new DatabaseSync(dbPath);
 const where = includeAll ? "status != 'deleted'" : "status = 'published'";
-const rows = db.prepare(`select id, slot_id, slug, title, status, body_markdown, images, design_template_id from posts where ${where} order by generated_at desc`).all();
+const rows = db.prepare(`select p.id, p.slot_id, p.slug, p.title, p.status, p.body_markdown, p.images, p.design_template_id,
+  (select count(*) from academies a join slots s2 on s2.slot_id=p.slot_id where a.tenant=p.tenant and s2.region is not null and a.region=s2.region) as exact_academy_count
+  from posts p where p.${where} order by p.generated_at desc`).all();
 
 function issuesFor(row) {
   const body = String(row.body_markdown || '');
@@ -16,28 +18,33 @@ function issuesFor(row) {
   const h1 = getH1(body);
   if (!h1) issues.push('missing_h1');
   else if (normalizeTitle(h1) !== normalizeTitle(row.title)) issues.push('h1_title_mismatch');
-  if (body.length < 2600) issues.push(`too_short:${body.length}`);
-  if (body.length > 5000) issues.push(`too_long:${body.length}`);
+  if (body.length < 3200) issues.push(`too_short:${body.length}`);
+  if (body.length > 5600) issues.push(`too_long:${body.length}`);
   const h2 = (body.match(/^##\s+/gm) || []).length;
   const h3 = (body.match(/^###\s+/gm) || []).length;
   const tableRows = countMarkdownTableRows(body);
   const listItems = countListItems(body);
   const paragraphs = getParagraphs(body);
   const faqQuestions = countFaqQuestions(body);
-  if (h2 < 6) issues.push(`few_h2:${h2}`);
+  if (h2 < 4) issues.push(`few_h2:${h2}`);
+  if (h2 > 12) issues.push(`too_many_h2:${h2}`);
+  const readability = readabilityIssues(body);
+  issues.push(...readability);
   if (!row.design_template_id) issues.push('missing_design_template_id');
   if (!['editorial', 'comparison', 'local-guide', 'checklist', 'conversion', 'custom'].includes(String(row.design_template_id || ''))) issues.push(`unknown_design_template:${row.design_template_id}`);
-  if (h2 >= 6 && !hasFinalUtilitySection(body)) issues.push('template_structure_missing_final_utility_section');
+  if (h2 >= 4 && !hasFinalUtilitySection(body)) issues.push('template_structure_missing_final_utility_section');
   if (hasFlatParagraphRun(paragraphs)) issues.push('too_flat_paragraphs');
-  if (/운전선생|Driving\s*Plus|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy|zipcode\/search-seo|localhost:\d+|127\.0\.0\.1|샘플|데모|sample|demo|dummy|placeholder|TODO|FIXME|내부\s*(?:API|데이터|자료)|검증된\s*(?:API|자료|데이터)|API\s*(?:URL|자료|데이터)|참고\s*API/i.test(body + row.title)) issues.push('internal_or_wrong_brand_leak');
+  if (/운전선생|Driving\s*Plus|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy|zipcode\/search-seo|localhost:\d+|127\.0\.0\.1|샘플|데모|sample|demo|dummy|placeholder|TODO|FIXME|내부\s*(?:API|데이터|자료)|검증된\s*(?:API|자료|데이터)|API\s*(?:URL|자료|데이터)|참고\s*API|긍정\s*(?:수강생|블로그)\s*리뷰(?:글)?\s*보충자료|짧은\s*실제\s*문구/i.test(body + row.title)) issues.push('internal_or_wrong_brand_leak');
+  if (/\d+\s*일\s*(?:만|컷|완성)|삼\s*일\s*(?:만|컷|완성)|하루\s*만|당일\s*합\s*격|무조건\s*합\s*격|합\s*격\s*보장|보장\s*합\s*격/u.test(body + row.title)) issues.push('risky_duration_or_pass_guarantee_claim');
+  const inflated = inflatedCandidateCountClaim(`${row.title}
+${body}`, Math.min(Number(row.exact_academy_count || 0), 5));
+  if (inflated) issues.push(`inflated_candidate_count:${inflated.claimed}>${inflated.actual}`);
   if (/[가-힣]+(?:시|군|구|읍|면|동)운전면허학원/.test(String(row.title || '') + '\n' + body)) issues.push('keyword_spacing_issue');
   if (/상담전확인|동선확인|비용절약|셔틀편리|비교추천/.test(body + row.title)) issues.push('compact_korean_spacing');
   if (/참고자료/.test(body) && !/도로교통공단|경찰청|정부24|법제처/.test(body)) issues.push('weak_source_section');
-  if (/\*\*[^*]+\*\*/.test(body)) issues.push('raw_bold_markdown');
-  if (/\[(?:TABLE|CTA|FAQ|QUOTE|IMAGE)_SLOT:/i.test(body)) issues.push('pseudo_slot');
+  if (/\[(?:TABLE|CTA|FAQ|QUOTE|IMAGE|INTERNAL_LINK)_SLOT:|\[INTERNAL_LINK:/i.test(body)) issues.push('pseudo_slot');
   if (/\[\d+\]/.test(body)) issues.push('visible_citation_marker');
-  if (!/(FAQ|자주 묻는 질문|질문과 답변)/i.test(body)) issues.push('missing_faq');
-  else if (faqQuestions > 0 && faqQuestions < 2) issues.push(`thin_faq:${faqQuestions}`);
+  if (faqQuestions > 0 && faqQuestions < 2) issues.push(`thin_faq:${faqQuestions}`);
   if (!listItems) issues.push('missing_list');
   if (!hasRichStructure({ tableRows, listItems, faqQuestions })) issues.push('missing_rich_structure');
   if (tableRows < 3) issues.push(`missing_summary_or_comparison_table:${tableRows}`);
@@ -49,6 +56,72 @@ function issuesFor(row) {
   const rendered = renderMarkdown(body, images);
   issues.push(...renderedSurfaceIssues(rendered, { h2, tableRows, usedImageKeys }));
   return { issues, chars: body.length, h2, h3, tableRows, listItems, paragraphs: paragraphs.length, faqQuestions, imageCount: imageKeys.length, imageTokens: usedImageKeys.length };
+}
+
+function readabilityIssues(body) {
+  const issues = [];
+  const paragraphs = getParagraphs(body);
+  const long = paragraphs.filter((paragraph) => paragraph.length > 420);
+  if (long.length) issues.push(`overlong_paragraph:${Math.max(...long.map((p) => p.length))}`);
+  if (adjacentHeadingCount(body) > 2) issues.push('adjacent_headings_without_body');
+  if (orphanHeadingCount(body) > 3) issues.push('too_many_thin_or_empty_heading_sections');
+  return issues;
+}
+
+function adjacentHeadingCount(body) {
+  const lines = String(body || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  let count = 0;
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (/^#{2,3}\s+/.test(lines[i] || '') && /^#{2,3}\s+/.test(lines[i + 1] || '')) count++;
+  }
+  return count;
+}
+
+function orphanHeadingCount(body) {
+  const sections = String(body || '').split(/^##\s+/gm).slice(1);
+  let count = 0;
+  for (const section of sections) {
+    const lines = section.split(/\r?\n/);
+    lines.shift();
+    const text = lines.join('\n')
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/\[IMAGE:[A-Za-z0-9_-]+\]/g, '')
+      .replace(/^\|.+\|$/gm, '')
+      .replace(/(^|\n)\s*(?:[-*]\s+|\d+[.)]\s+|✅|✓).*$/gm, '')
+      .replace(/^#{3,6}\s+.+$/gm, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (text.length > 0 && text.length < 80) count++;
+  }
+  return count;
+}
+
+function inflatedCandidateCountClaim(markdown, actual) {
+  if (!actual || actual < 1) return null;
+  const headings = [...String(markdown || '').matchAll(/^#{1,3}\s+(.+)$/gm)].map((m) => m[1] || '');
+  const titleLine = String(markdown || '').split(/\r?\n/, 1)[0] || '';
+  const targets = [...new Set([titleLine.replace(/^#\s+/, ''), ...headings])];
+  let maxClaim = 0;
+  for (const target of targets) for (const count of candidateCountClaims(target)) maxClaim = Math.max(maxClaim, count);
+  return maxClaim > actual ? { claimed: maxClaim, actual } : null;
+}
+
+function candidateCountClaims(value) {
+  const text = String(value || '');
+  const claims = [];
+  const patterns = [
+    /(?:BEST|TOP)\s*(\d{1,2})/giu,
+    /(?:추천|비교|후보|학원)\s*(\d{1,2})\s*(?:곳|개)/gu,
+    /(\d{1,2})\s*(?:곳|개)\s*(?:추천|비교|후보|학원)/gu,
+    /운전면허학원\s*(\d{1,2})\s*(?:곳|개)/gu,
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const n = Number(match[1]);
+      if (Number.isFinite(n)) claims.push(n);
+    }
+  }
+  return claims;
 }
 
 function getH1(body) {

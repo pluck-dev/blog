@@ -1,0 +1,779 @@
+{
+  "source": "data/drivingteacher_blog_posts.csv",
+  "filter": "all rows",
+  "rows_scanned": 21275,
+  "best_related_rows": 21275,
+  "article_type_counts": {
+    "cost_comparison": 9018,
+    "exam_best": 6426,
+    "local_access": 4977,
+    "local_best_comparison": 536,
+    "general_best": 318
+  },
+  "top_templates": {
+    "필기시험BEST5": 946,
+    "운전면허 필기시험 팁": 918,
+    "면허설명 및 비교": 866,
+    "특정시험단계집중": 860,
+    "지역운전면허시험장1곳소개": 810,
+    "신일전용템플릿": 778,
+    "": 765,
+    "운전면허시험장 x곳 비교": 745,
+    "운전면허필기시험접수": 702,
+    "왜관전용템플릿": 670,
+    "특정타겟맞춤형": 621,
+    "뉴삼성전용템플릿2": 597,
+    "운전면허취득총정리": 595,
+    "뉴강남전용템플릿": 574,
+    "비용 및 시간 절약 전략": 547,
+    "운전면허 필기시험 어플 추천": 541,
+    "대구 남구 BEST5_group2": 532,
+    "충남2 BEST5": 485,
+    "뉴삼성전용템플릿": 480,
+    "충남1 BEST5": 459,
+    "울산 BEST5": 441,
+    "제주 BEST5": 439,
+    "동송전용템플릿": 421,
+    "경기남부 BEST5": 418,
+    "부산 BEST5": 386,
+    "대구 달성군 BEST5": 365,
+    "경주 BEST5": 361,
+    "충북 BEST5": 338,
+    "전남 BEST5": 331,
+    "대구 동구 BEST5": 310,
+    "대구 남구 BEST5_group1": 309,
+    "서울 BEST5": 307,
+    "대구 서구 BEST5": 283,
+    "한백전용템플릿": 280,
+    "대구 북구 BEST5": 278,
+    "구미 BEST5": 278,
+    "뉴삼성전용템플릿3": 277,
+    "논산 BEST5": 253,
+    "대구 중구 BEST5": 223,
+    "대전 BEST 5": 213,
+    "세종 BEST5": 211,
+    "대구 달서구 BEST5": 197,
+    "대구 수성구 BEST5": 189,
+    "밀양 BEST5": 157,
+    "창원 BEST5": 149,
+    "부여 BEST 5": 128,
+    "대구 BEST5": 115,
+    "계룡부여 BEST5": 109,
+    "대구 남구 BEST5": 16,
+    "대구 BEST7": 2
+  },
+  "average_structure_metrics": {
+    "heading_count": 5.75,
+    "image_count": 2.95,
+    "table_count": 1.61,
+    "bullet_count": 7.92,
+    "quote_count": 2.52,
+    "bold_count": 21.51,
+    "link_count": 5.98,
+    "cta_term_count": 26.4
+  },
+  "top_title_patterns": [
+    {
+      "pattern_type": "title",
+      "pattern": "합격을 가르는 핵심 {운전면허} {필기시험} BEST{N}",
+      "count": 5,
+      "example_title": "합격을 가르는 핵심 운전면허 필기시험 BEST 5",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "합격률을 떨어뜨리는 {운전면허} {필기시험} 단골 함정 문제 BEST{N}",
+      "count": 4,
+      "example_title": "합격률을 떨어뜨리는 운전면허 필기시험 단골 함정 문제 BEST 5",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{운전면허} {N}종보통, {N}종보통 전격 비교 및 상황별 추천",
+      "count": 3,
+      "example_title": "운전면허 1종보통, 2종보통 전격 비교 및 상황별 추천!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "가장 많이 출제되는 {운전면허} {필기시험} BEST{N}",
+      "count": 3,
+      "example_title": "가장 많이 출제되는 운전면허 필기시험 BEST 5",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "합격생이 가장 많이 틀린 {운전면허} {학과시험} BEST{N}",
+      "count": 3,
+      "example_title": "합격생이 가장 많이 틀린 운전면허 학과시험 BEST 5",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} BEST {N}곳: 수강료, 셔틀, 단기 합격 완벽 비교",
+      "count": 3,
+      "example_title": "서울 성동구 운전면허학원 BEST 3곳: 수강료, 셔틀, 단기 합격 완벽 비교!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "가장 많이 출제되는 {운전면허} {학과시험} BEST{N}",
+      "count": 3,
+      "example_title": "가장 많이 출제되는 운전면허 학과시험 BEST 5",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "합격률을 떨어뜨리는 {운전면허} {학과시험} 단골 함정 문제 BEST{N}",
+      "count": 3,
+      "example_title": "합격률을 떨어뜨리는 운전면허 학과시험 단골 함정 문제 BEST 5",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "합격생이 가장 많이 틀린 {운전면허} {필기시험} BEST{N}",
+      "count": 3,
+      "example_title": "합격생이 가장 많이 틀린 운전면허 필기시험 BEST 5",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "합격을 가르는 핵심 초보자가 실수하기 쉬운 {운전면허} {필기시험} BEST{N}",
+      "count": 3,
+      "example_title": "합격을 가르는 핵심! 초보자가 실수하기 쉬운 운전면허 필기시험 BEST 5",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {지역} {운전면허학원} 빠른 합격 핵심 {N}곳 추천",
+      "count": 2,
+      "example_title": "대구 중구 삼덕동 운전면허학원 빠른 합격 핵심 4곳 추천",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} BEST {N}곳 완벽 비교 분석",
+      "count": 2,
+      "example_title": "대구 남구 운전면허학원 BEST 4곳 완벽 비교 분석",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "합격생이 가장 많이 틀린 {운전면허} {필기시험} BEST{N} 문제 해설",
+      "count": 2,
+      "example_title": "합격생이 가장 많이 틀린 운전면허 필기시험 BEST 5 문제 해설",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} TOP{N}, 초보도 쉽게 따는 완벽 가이드",
+      "count": 2,
+      "example_title": "광주 서구 운전면허학원 TOP 3, 초보도 쉽게 따는 완벽 가이드!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "수원 {지역} {운전면허}, 초보도 {N}일 만에 합격 친절 강사 노하우 대공개",
+      "count": 2,
+      "example_title": "수원 장안구 운전면허, 초보도 3일 만에 합격! 친절 강사 노하우 대공개",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "초보자가 헷갈리는 {운전면허} {필기시험} 단골 함정 문제 BEST{N}",
+      "count": 2,
+      "example_title": "초보자가 헷갈리는 운전면허 필기시험 단골 함정 문제 BEST 5",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} TOP{N} 합격률 높은 곳 완벽 비교",
+      "count": 2,
+      "example_title": "대전 전민동 운전면허학원 TOP 3 합격률 높은 곳 완벽 비교!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} {N}곳 총정리: {지역}, {지역} 셔틀 완벽 비교",
+      "count": 2,
+      "example_title": "대구 남구 운전면허학원 4곳 총정리: 영대병원역, 현충로역 셔틀 완벽 비교",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역}{지역} {운전면허학원} TOP{N}, 초단기 합격 필승 전략 공개",
+      "count": 2,
+      "example_title": "부산진구 운전면허학원 TOP 2, 초단기 합격 필승 전략 공개",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {지역} {운전면허학원} 핵심 {N}곳 수강생 인기 분석 비교",
+      "count": 2,
+      "example_title": "대구 북구 대현동 운전면허학원 핵심 4곳! 수강생 인기 분석 비교",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} 실패 없는 TOP{N} 선택 가이드",
+      "count": 2,
+      "example_title": "부산 북구 운전면허학원 실패 없는 TOP 2 선택 가이드",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} 핵심 {N}곳 수강료, 셔틀, 합격률 완벽 비교",
+      "count": 2,
+      "example_title": "대구 동구 운전면허학원 핵심 4곳! 수강료, 셔틀, 합격률 완벽 비교",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{운전면허} 장내기능 ‘공식 함정’ 완벽 탈출, 초보도 한 번에 {N}% 합격하는 실전 비법",
+      "count": 2,
+      "example_title": "운전면허 장내기능 ‘공식 함정’ 완벽 탈출, 초보도 한 번에 100% 합격하는 실전 비법",
+      "article_type": "general_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "천안 {지역} {운전면허학원} BEST {N}곳: 초보도 단기 합격 수강료, 셔틀 완벽 비교",
+      "count": 2,
+      "example_title": "천안 불당동 운전면허학원 BEST 4곳: 초보도 단기 합격! 수강료, 셔틀 완벽 비교",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} 인기 TOP {N}곳 수강료, 셔틀, 합격률 완벽 비교",
+      "count": 2,
+      "example_title": "대구 국우동 운전면허학원 인기 TOP 4곳! 수강료, 셔틀, 합격률 완벽 비교",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} BEST {N}곳 초보 단기 합격 위한 최저가 완벽 비교",
+      "count": 2,
+      "example_title": "광주 동구 운전면허학원 BEST 3곳! 초보 단기 합격 위한 최저가 완벽 비교",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} 알아야 할 {운전면허} {학과시험} BEST{N}",
+      "count": 2,
+      "example_title": "반드시 알아야 할 운전면허 학과시험 BEST 5",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "합격을 가르는 핵심 초보자가 헷갈리는 {운전면허} {학과시험} BEST{N}",
+      "count": 2,
+      "example_title": "합격을 가르는 핵심! 초보자가 헷갈리는 운전면허 학과시험 BEST 5",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} 완벽 분석 초보도 합격하는 BEST {N}곳 추천",
+      "count": 2,
+      "example_title": "세종 부강면 운전면허학원 완벽 분석! 초보도 합격하는 BEST 2곳 추천",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "구미 {지역} {운전면허학원} {N}곳 완벽 비교: 초보도 단기 합격 보장",
+      "count": 2,
+      "example_title": "구미 옥계동 운전면허학원 3곳 완벽 비교: 초보도 단기 합격 보장!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {지역} {운전면허학원} {N}곳 총정리: 초보 탈출 완벽 가이드",
+      "count": 2,
+      "example_title": "대구 동구 지저동 운전면허학원 4곳 총정리: 초보 탈출 완벽 가이드!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원}, 초보도 합격하는 BEST {N}곳 비교 분석",
+      "count": 2,
+      "example_title": "대구 신천동 운전면허학원, 초보도 합격하는 BEST 4곳 비교 분석",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{N}종 보통 vs {N}종 보통: 내 라이프스타일에 딱 맞는 {운전면허}, 후회 없이 고르는 법",
+      "count": 2,
+      "example_title": "1종 보통 vs 2종 보통: 내 라이프스타일에 딱 맞는 운전면허, 후회 없이 고르는 법",
+      "article_type": "local_best_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} {N}곳 완전 분석: 초보도 단기 합격하는 비법 공개",
+      "count": 2,
+      "example_title": "부산 기장군 운전면허학원 2곳 완전 분석: 초보도 단기 합격하는 비법 공개!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} BEST{N}: 초보도 {N}일 단기 합격하는 비법",
+      "count": 2,
+      "example_title": "광주 봉선동 운전면허학원 BEST 3: 초보도 3일 단기 합격하는 비법!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {지역} {운전면허학원} TOP{N}: 최저가 수강료와 합격 비법 비교",
+      "count": 2,
+      "example_title": "대구 달서구 용산동 운전면허학원 TOP 4: 최저가 수강료와 합격 비법 비교!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "합격률 떨어뜨리는 {지역} 알아야 할 {운전면허} {필기시험} BEST{N}",
+      "count": 2,
+      "example_title": "합격률 떨어뜨리는 반드시 알아야 할 운전면허 필기시험 BEST 5",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} {N}곳 상세 비교 초보도 합격하는 선택 가이드",
+      "count": 2,
+      "example_title": "대구 연경동 운전면허학원 4곳 상세 비교! 초보도 합격하는 선택 가이드",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "초보자가 헷갈리는 {운전면허} {필기시험} 단골 함정 BEST{N}",
+      "count": 2,
+      "example_title": "초보자가 헷갈리는 운전면허 필기시험 단골 함정 BEST 5",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} {N}곳 완벽 비교 합격 꿀팁 대방출",
+      "count": 2,
+      "example_title": "대구 수성구 운전면허학원 3곳 완벽 비교! 합격 꿀팁 대방출",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "천안 {지역} {운전면허학원} 완벽 비교 {N}곳 빠른 합격 비법 & 셔틀 노선",
+      "count": 2,
+      "example_title": "천안 성정동 운전면허학원 완벽 비교 3곳! 빠른 합격 비법 & 셔틀 노선",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "대한민국 {운전면허} 취득 완전 분석: 왕초보를 위한 절차 및 전략 가이드",
+      "count": 2,
+      "example_title": "대한민국 운전면허 취득 완전 분석: 왕초보를 위한 절차 및 전략 가이드",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "합격을 가르는 핵심 {운전면허} {필기시험} {지역} 알아야 할 BEST{N}",
+      "count": 2,
+      "example_title": "합격을 가르는 핵심! 운전면허 필기시험 반드시 알아야 할 BEST 5",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{운전면허} 싸고 빠르게 따는 법: 사회초년생 대학생 위한 비용 절약 & 시간 단축 꿀팁",
+      "count": 2,
+      "example_title": "운전면허 싸고 빠르게 따는 법: 사회초년생 대학생 위한 비용 절약 & 시간 단축 꿀팁",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{학원명}, {N}일 최단기 취득 강사 친절 만족 {자동차학원}",
+      "count": 1,
+      "example_title": "안산운전면허학원, 3일 최단기 취득 강사 친절 만족 자동차학원",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} 추천 {N}곳 {지역}, {지역} 합격 후기",
+      "count": 1,
+      "example_title": "대구 동구 운전면허학원 추천 4곳! 율하동, 혁신도시 합격 후기",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} BEST{N}: {지역}, {지역}, 안지랑 가격 비교부터 셔틀까지",
+      "count": 1,
+      "example_title": "대구 남구 운전면허학원 BEST 4: 대명동, 봉덕동, 안지랑 가격 비교부터 셔틀까지!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} TOP {N}곳 비교 최저가 & 친절함으로 초보 탈출",
+      "count": 1,
+      "example_title": "대구 달서구 운전면허학원 TOP 4곳 비교! 최저가 & 친절함으로 초보 탈출",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "{지역} {지역} {운전면허학원} BEST{N} 완벽 비교 칠곡·{지역} 초보 운전자 주목",
+      "count": 1,
+      "example_title": "대구 북구 운전면허학원 BEST 4 완벽 비교! 칠곡·복현동 초보 운전자 주목",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "title",
+      "pattern": "부여 {운전면허학원}, {N}년 빠른 합격을 위한 베스트 {N}곳 완벽 비교",
+      "count": 1,
+      "example_title": "부여 운전면허학원, 2026년 빠른 합격을 위한 베스트 2곳 완벽 비교",
+      "article_type": "local_access"
+    }
+  ],
+  "top_heading_patterns": [
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{학원명} > H2:{학원명} > H2:{학원명} > H2:{학원명} > H2:{학원명}",
+      "count": 3,
+      "example_title": "창원 마산 진해 운전면허학원 엄선된 5곳! 실패 없는 선택 가이드",
+      "article_type": "general_best"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{운전면허}, 나에게 딱 맞는 초스피드 최저가 경로 찾기 > H2:숨겨진 비용까지 꼼꼼히 단계별 {운전면허} 비용 절약법 > H2:단기간 합격 보장 {운전면허} 시험 시간 효율 {N}% 활용 팁 > H2:면허 취득 후 지출까지 절약 사회초년생 & 대학생 위한 추가 비용 가이드",
+      "count": 2,
+      "example_title": "운전면허 싸고 빠르게 따는 법: 사회초년생 대학생 위한 비용 절약 & 시간 단축 꿀팁",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H1:\\*슬기로운 중고차 구매법\\*",
+      "count": 2,
+      "example_title": "*슬기로운 중고차 구매법*중고차 사기 유형(2) - 네다바이",
+      "article_type": "general_best"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:안산{운전면허}, 왜 뉴삼성에서 시작해야 할까요 > H2:최단기 {N}일 만에 {운전면허} 취득 뉴삼성 합격 비법 > H2:강사 친절도 {N}% 처음도 안심, 베테랑 강사진 > H2:안산 전 {지역} 운행 뉴삼성 셔틀로 편하게 오세요 > H2:지금 바로 뉴삼성에서 {운전면허} 취득을 시작하세요 > H2:마무리",
+      "count": 1,
+      "example_title": "안산운전면허학원, 3일 최단기 취득 강사 친절 만족 자동차학원",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} {지역} {운전면허학원}, 현명하게 선택하는 법 > H2:주목 {지역} {지역} & 인근 {지역} BEST {운전면허학원} {N}곳 > H2:다른 추천 학원: {지역} & 동양 {운전면허학원} 살펴보기 > H2:나에게 딱 맞는 학원 고르기 최종 체크리스트 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 동구 운전면허학원 추천 4곳! 율하동, 혁신도시 합격 후기",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} {지역} {운전면허학원}, 선택 전 꼭 알아야 할 것 > H2:합격률 높은 {지역} {지역} {운전면허학원} BEST{N} (안전, 청구) > H2:가성비 좋은 {지역} {지역} {운전면허학원} {N}곳 전격 비교 (동양, 서{지역}) > H2:나에게 딱 맞는 {운전면허학원} 현명하게 고르는 팁 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 남구 운전면허학원 BEST 4: 대명동, 봉덕동, 안지랑 가격 비교부터 셔틀까지!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} {지역} {학원명}: 상인, 월성, 진천 {지역} > H2:{지역} {지역} {학원명}: 감삼, 죽전, {지역} 초보 운전자 주목 > H2:{지역} {운전면허학원}: {지역} 성서, 두류동까지 셔틀로 편하게 > H2:{학원명}: {지역} 이곡, {지역} 넓은 셔틀 노선 > H2:한눈에 비교하는 {지역} {지역} {운전면허학원} TOP{N} > H2:마무리",
+      "count": 1,
+      "example_title": "대구 달서구 운전면허학원 TOP 4곳 비교! 최저가 & 친절함으로 초보 탈출",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:칠곡, {지역} 넓은 셔틀 운행 {학원명} > H2:복현동에 위치한 초보 운전자 안심 코스, {학원명} > H2:{지역} 가성비 甲 다양한 면허 취득 가능한 {학원명} > H2:{지역} {지역} 셔틀 운행 친절함이 강점인 {학원명} > H2:{지역} {지역} {운전면허학원}, 나에게 맞는 곳은 (한눈에 비교하기) > H2:마무리",
+      "count": 1,
+      "example_title": "대구 북구 운전면허학원 BEST 4 완벽 비교! 칠곡·복현동 초보 운전자 주목",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:부여 {지역} {운전면허}, 어디서 시작해야 할까 > H2:{학원명}: {지역} 인근 주민의 압도적 선택 > H2:{학원명}: 넓은 셔틀 지역과 다양한 면허 취득 > H2:나에게 맞는 {운전학원}, 현명하게 선택하는 가이드 > H2:마무리",
+      "count": 1,
+      "example_title": "부여 운전면허학원, 2026년 빠른 합격을 위한 베스트 2곳 완벽 비교",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} 현대 {운전학원}, 왜 지금 선택해야 할까요 > H2:합격률 높은 이유: 친절한 강사진과 체계적인 커리큘럼 > H2:편리함의 극치: {지역} 전 {지역} 셔틀 서비스 및 예약 시스템 > H2:수강료와 실제 후기: 현대학원의 가치를 증명하다 > H2:마무리",
+      "count": 1,
+      "example_title": "제주 운전면허학원, 2026년 베스트 딱 한 곳 추천! 현대 운전전문학원",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{필기시험} 접수 전 필수 교통안전교육 & 신체검사 > H2:온라인 VS 현장, 나에게 맞는 접수 방법 선택은 > H2:헷갈림 없는 {필기시험} 준비물 체크리스트 > H2:합격률 높이는 선택 운전전문학원 vs 국가시험장 비교 > H2:마무리",
+      "count": 1,
+      "example_title": "운전면허 필기시험 접수, 2026년 최신판: 온라인부터 현장까지 완벽 가이드!",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} {지역} {운전면허학원}, 현명한 선택을 위한 첫 걸음 > H2:남구민이 극찬하는 학원: 안전 {운전면허학원} 집중 분석 > H2:교통 편의성 최고 {지역} {운전면허학원} 셔틀 노선 완벽 파헤치기 > H2:가성비와 친절함, 두 마리 토끼 다 잡는 {지역} & 동양 {운전면허학원} > H2:나에게 딱 맞는 학원 찾기: 후회 없는 선택을 위한 최종 체크리스트 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 남구 운전면허학원 4곳 완벽 비교 추천! 대명동, 봉덕동 주민 주목!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} {운전면허학원}: 넓은 셔틀 범위와 합격 노하우 > H2:{지역} {운전면허학원}: 친절한 강사진과 편리한 셔틀 서비스 > H2:고려 {운전면허학원}: 깔끔한 시설과 체계적인 맞춤 교육 > H2:성당 {운전면허학원}: 가까운 거리와 꼼꼼한 주차 교육 > H2:{지역} {지역} {운전면허학원} {N}곳, 한눈에 비교하기 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 달성군 및 인근 운전면허학원 강력 추천 4곳 완벽 비교 가이드",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:🚗 {지역} {지역} {지역} 인근 '안전' {운전면허학원} 집중 분석 > H2:🚦 합격률 높은 {지역} {지역} {지역} '청구' {운전면허학원}의 비밀 > H2:🚕 {지역} {지역} {운전면허학원}, 넓은 셔틀 노선으로 북구까지 편리하게 > H2:🚍 착한 학원비에 넓은 셔틀까지 '동양' {운전면허학원} 완전 정복 > H2:🏆 {지역} {지역} {운전면허학원}, 나에게 맞는 곳은 최종 비교 팁 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 북구 칠곡, 태전동, 복현동 운전면허학원 TOP 4 비교 분석",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:논산 {학원명}: 넓은 셔틀 노선과 힐링 시설 > H2:부여 {학원명}: 부여, 논산, 청양을 아우르는 베테랑 학원 > H2:계룡 {학원명}: 빠른 면허 취득과 쉬운 {도로주행} 코스 > H2:나에게 맞는 논산 인근 {운전면허학원} 선택 가이드 > H2:마무리",
+      "count": 1,
+      "example_title": "논산 운전면허학원 BEST 3, 최저가부터 셔틀까지 총정리!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:마포 {운전면허}, 왜 강사 친절이 중요할까 > H2:{학원명}의 특별한 친절 교육 시스템 > H2:마포에서 신일까지 걱정 마세요 편리한 셔틀 운행 정보 > H2:실제 수강생 후기: 강사님 덕분에 자신감 UP > H2:{운전면허} 취득, 신일에서 {지역} 빠르고 쉽다 > H2:마무리",
+      "count": 1,
+      "example_title": "마포 운전면허 학원 선택 가이드: 강사 친절 만족으로 후회 없는 선택!",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:안산에서 가장 빠른 길, 왜 {학원명}일까 > H2:정말 {N}일 완성 가능 직장인을 위한 최적의 스케줄 > H2:초보 운전자가 두려워하는 {도로주행}, 합격률 {N}%의 비밀 > H2:비용 부담 DOWN, 만족도 UP 수강료와 특별 혜택 > H2:안산 구석구석 우리 집 앞까지 오는 셔틀버스 노선 > H2:마무리",
+      "count": 1,
+      "example_title": "안산 운전면허, 3일이면 OK! 친절 강사와 셔틀로 빠르게 따는 비결",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{N}일 완성, 꿈이 아닌 현실 > H2:뉴삼성만의 초단기 합격 노하우 > H2:화성 수강생을 위한 편리한 셔틀 및 교육 환경 > H2:면허 취득, 그 후의 달라진 일상 > H2:마무리",
+      "count": 1,
+      "example_title": "화성 운전면허, 3일이면 합격 가능? 초고속 취득 비법 공개!",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} {지역} {운전면허학원} 고르는 꿀팁 (비용, 셔틀, 합격률) > H2:합리적인 가격에 친절함까지, 안전 {운전면허학원} > H2:편리한 셔틀과 베테랑 강사, {지역} {운전면허학원} > H2:최신 시설과 다양한 과정, {지역} {운전면허학원} > H2:맞춤형 교육 시스템, 동양 {운전면허학원} > H2:나에게 딱 맞는 {지역} {지역} {운전면허학원} 선택은 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 동구 운전면허학원 4곳 총정리: 최저가 비교 팁과 셔틀 정보",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} {지역} {운전면허학원} 선택, 성공을 위한 가이드라인 > H2:높은 합격률과 친절 강사: 안전 & {지역} {운전면허학원} 심층 비교 > H2:높은 합격률과 친절 강사: 안전 & {지역} {운전면허학원} 심층 비교 (계속) > H2:빠른 면허 취득 & 다양한 선택: 동양 & {지역} {운전면허학원} 분석 > H2:빠른 면허 취득 & 다양한 선택: 동양 & {지역} {운전면허학원} 분석 (계속) > H2:나에게 맞는 {운전면허학원}, 현명하게 고르는 꿀팁 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 남구 운전면허학원 엄선 4곳 비교! 초보도 합격하는 BEST 추천",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{N}. [달서구] 체계적인 교육의 정석, {학원명} > H2:{N}. [북구] 다양한 면허 취득이 한 번에 {학원명} > H2:{N}. [달서구] 아빠처럼 든든한 교육, {학원명} > H2:{N}. [서구] 유튜브로 예습 복습까지 {학원명} > H2:{지역} {운전면허} 비용 & 학원 선택 꿀팁 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 운전면허학원 BEST 4곳 추천",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:내게 딱 맞는 {운전면허학원}, 어떻게 골라야 할까 > H2:{지역} 현풍/옥포/논공 대표 {학원명} > H2:화원/옥포에서 {지역} {학원명} > H2:{지역} 전 {지역} 커버 {학원명} > H2:한눈에 비교하는 {지역} {지역} 추천 {운전면허학원} > H2:마무리",
+      "count": 1,
+      "example_title": "대구 달성군 운전면허학원 최고 4곳 추천! 성공 합격 핵심 가이드",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} {지역} {운전면허}, 현명한 학원 선택이 필수 > H2:합격률 높은 {학원명}: {지역} 대표 학원 > H2:베테랑 강사진의 {학원명}: {지역} 인근 > H2:다양한 면허의 {학원명}: {지역} 중심 > H2:넓은 셔틀망 {학원명}: {지역} {지역} 어디든 OK > H2:{지역} {지역} {운전면허}, 나에게 딱 맞는 학원 선택으로 성공 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 북구 운전면허학원 4곳! 합격률 높은 곳만 엄선 추천 가이드",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:쾌속 합격 비법은 천안 {학원명} > H2:넓은 셔틀 노선 {학원명} > H2:친절 교육의 명가 천안불당 {학원명} > H2:베테랑 강사진과 함께 천안중앙 {학원명} > H2:나에게 딱 맞는 {운전면허} 학원 고르는 꿀팁 > H2:마무리",
+      "count": 1,
+      "example_title": "천안 아산 운전면허학원 선택 가이드: 베스트 4곳 비교 추천",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} {운전면허학원} 선택, 이것만은 꼭 확인하세요 > H2:{지역} {지역} {학원명}: 착한 수강료와 꼼꼼한 지도로 초보도 OK > H2:{지역} {지역} {학원명}: {지역} 인근, 셔틀 편의성 높은 학원 > H2:나에게 맞는 {운전면허학원} 고르는 꿀팁과 합격 전략 > H2:마무리",
+      "count": 1,
+      "example_title": "부산 운전면허학원, 찐 수강생 후기로 고르는 TOP 2 추천 비교",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:현대 {운전면허학원}, 왜 {지역} 애월 최고 추천일까 > H2:강사 친절도와 합격률이 말해주는 현대의 특별함 > H2:수강료부터 코스까지: 현대 {운전면허학원} 총정리 > H2:초보도 쉽게 애월 {지역} {도로주행} 꿀팁 대방출 > H2:마무리",
+      "count": 1,
+      "example_title": "제주 애월 운전면허학원 찐후기: 합격률 높고 강사 친절한 현대 운전면허학원 선택 가이드",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:면허 종류부터 학원 선택까지: 나에게 맞는 베스트 플랜 찾기 > H2:필기부터 {도로주행}까지: {운전면허} 시험 절차 완벽 이해 > H2:합격률 높이는 핵심 전략과 꼭 알아야 할 비용 정보 > H2:{N}년 {운전면허} 제도 변화: {N}종 {지역} 및 갱신 제도 폐지 총정리 > H2:마무리",
+      "count": 1,
+      "example_title": "운전면허 취득, A부터 Z까지! 2026년 왕초보를 위한 완벽 가이드",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{도로주행} 시험, 무엇이 당신을 두렵게 할까 > H2:잦은 실수는 이제 그만 {도로주행} 감점 요소 완벽 분석 > H2:시험관도 놀라는 코스 암기법: 구간별 공략 꿀팁 > H2:합격 보장 {도로주행} 최종 실전 팁과 마무리 전략 > H2:마무리",
+      "count": 1,
+      "example_title": "운전면허 도로주행 실전 완벽 가이드: 한 번에 합격하는 핵심 노하우",
+      "article_type": "general_best"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:나에게 딱 맞는 {운전면허} 종류 선택하기 > H2:바쁜 현대인을 위한 {운전면허} 학습 경로 비교 분석 > H2:직장인, 주부, 대학생 타깃별 시간/비용 절약 꿀팁 > H2:{N}년, 이렇게 바뀐 {운전면허} 제도 똑똑하게 준비하는 법 > H2:마무리",
+      "count": 1,
+      "example_title": "시간 절약 끝판왕! 바쁜 직장인, 주부, 대학생 위한 운전면허 초단기 취득 전략",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{N}종 vs {N}종 보통 면허: 운전 가능 차량 및 시험 방식 심층 분석 > H2:나에게 더 유리한 면허는 개인 상황별 {N}종, {N}종 보통 면허 추천 가이드 > H2:{운전면허} 취득 예상 총비용 및 기간: 학원, 독학, 실내연습장 경로별 비교 > H2:{N}년 {운전면허} 제도 변경 총정리: {N}종 {지역} 면허 도입과 갱신 제도 폐지 > H2:합격률 높이는 실질적 팁: 학과, 기능, {도로주행} 준비물 및 핵심 전략 > H2:마무리",
+      "count": 1,
+      "example_title": "운전면허 1종 2종 보통, 당신의 현명한 선택은? 2026년 최신 비교 가이드",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{운전면허} {필기시험}, 이것부터 알아두세요 > H2:{N}주일 완성 초고효율 {필기시험} 합격 전략 > H2:떨지 않고 한 번에 합격 시험장 꿀팁 & 체크리스트 > H2:마무리",
+      "count": 1,
+      "example_title": "운전면허 필기시험 합격률 99% 비밀 노하우 대공개! 초보도 1주일 만에 합격하는 단기 전략",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{운전면허} {필기시험} 필수 앱 TOP{N}, 완벽 분석 > H2:핵심 {N}대장 앱 집중 비교: 한눈에 보는 승부처 > H2:내게 맞는 필기 앱 선택 가이드 & {N}년 최신 트렌드 > H2:합격을 부르는 오답노트 {N}% 활용 전략 > H2:마무리",
+      "count": 1,
+      "example_title": "운전면허 필기시험 앱 끝판왕: 운전선생 vs 운전면허플러스 vs 스피드운전면허, 합격률 높이는 최신 비교 분석!",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:초보도 자신감 UP 합격률 높은 {운전학원}의 비밀 > H2:{지역} 어디든 OK 매일 운행하는 셔틀버스 노선 안내 > H2:동송만의 빠르고 쉬운 면허 취득 특별 시스템 > H2:{운전면허} 취득 절차와 알뜰 비용 절약 팁 > H2:마무리",
+      "count": 1,
+      "example_title": "서울 노원 강북 운전면허 최단기 합격? 친절 강사와 셔틀이 비결!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:잠실 {운전면허}, 왜 {N}일 만에 합격할까 > H2:뉴강남 {운전학원}, 합격률 높이는 강사님의 친절 교육 노하우 > H2:{운전면허} 최단기 취득 과정: 학과, 기능, {도로주행} 핵심 포인트 > H2:합격자를 위한 필수 꿀팁: 비용 절감과 빠른 면허증 취득 전략 > H2:마무리",
+      "count": 1,
+      "example_title": "잠실운전면허학원, 3일 만에 합격! 강사진 친절 만족 운전면허 최단기 취득 비법",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:은평에서 {N}분 왜 '{학원명}'을 선택해야 할까 > H2:비용과 시간, 두 마리 토끼를 잡는 현명한 선택 > H2:실제 수강생이 말하는 '찐' 후기 만족도 높은 이유 > H2:우리 집 앞까지 은평구를 위한 완벽한 셔틀 시스템 > H2:자, 이제 {N}일 면허 따러 가볼까요 > H2:마무리",
+      "count": 1,
+      "example_title": "은평운전면허학원, 3일 만에 따는 최단기 운전면허 노하우 대공개!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:동탄 주민을 위한 뉴삼성 특별 혜택 > H2:{N}일 만에 면허증, 정말 가능할까요 > H2:친절한 강사님과 {N}:{N} 맞춤 교육 > H2:필기부터 실기까지, 한 번에 끝내는 합격 노하우 > H2:매일 운행하는 동탄 셔틀 버스로 편하게 > H2:마무리",
+      "count": 1,
+      "example_title": "동탄 운전면허 최단기 합격, 셔틀로 편하게 끝내는 비법!",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:병점 주민 주목 왜 '{학원명}'이 정답일까 > H2:가장 중요한 '비용'과 '시간', 확실하게 알아보기 > H2:합격률 {N}% {학원명}만의 특별한 강점들 > H2:우리 동네에서 뉴삼성까지, 가장 스마트하게 가는 법 > H2:가장 쉽고 빠른 등록 방법, '운전선생'으로 한 번에 > H2:마무리",
+      "count": 1,
+      "example_title": "화성 병점 운전면허, 최단기 합격 노하우와 저렴한 비용 총정리!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:안산 {운전면허}, {N}일 합격의 비밀은 > H2:친절한 강사진과 체계적인 커리큘럼의 중요성 > H2:필기부터 {도로주행}까지, 합격률 높이는 노하우 > H2:뉴삼성의 편리한 셔틀 서비스 및 위치 (안산 포함) > H2:{운전면허}, 이제 미루지 말고 도전하세요 > H2:마무리",
+      "count": 1,
+      "example_title": "안산 운전면허, 3일이면 취득 가능한 친절 학원 완벽 분석!",
+      "article_type": "exam_best"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} {학원명}: 빠른 면허 취득을 위한 친절한 안내 > H2:{지역} {학원명}: 베테랑 강사진과 체계적인 교육으로 합격 보장 > H2:{지역} {학원명}: 합리적인 수강료와 편리한 셔틀로 접근성 최고 > H2:{지역} {학원명}: 쪽집게 코칭으로 장내·{도로주행} 원샷원킬 > H2:한눈에 보는 {지역} {지역} {운전면허학원} 비용 비교 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 서구 운전면허학원 TOP 4 실제 후기와 비용 비교 완벽 정리",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} {지역} {운전면허}, 현명하게 고르는 꿀팁 > H2:'안전'운전의 시작 {학원명} ({지역} {지역}, {지역} 셔틀) > H2:합격률 높은 {학원명} ({지역}, {지역} 인근) > H2:{N}종 소형도 OK {학원명} (다양한 면허 취득) > H2:{학원명} (넓은 셔틀, 쉬운 코스) > H2:마무리",
+      "count": 1,
+      "example_title": "대구 동구 운전면허학원 추천 BEST 4! 면허 초보 집중 가이드",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:안전운전의 첫걸음, {학원명} > H2:쉬운 {도로주행}, 빠른 합격 {학원명} > H2:최저가 보장, {학원명} > H2:{지역} 학원 선택 꿀팁: 셔틀, 비용, 코스 비교 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 수성구 운전면허학원, 찐 수강생 리뷰로 고른 TOP 3",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} 중심 {학원명} > H2:넓은 셔틀 운행 {학원명} > H2:편리한 접근성, {학원명} > H2:친절한 강사진의 {학원명} > H2:나에게 딱 맞는 {지역} {운전면허학원} 선택 가이드 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 달성군 운전면허학원 4곳 총정리! 빠른 합격 비법 공개",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} {지역} {운전면허학원}, 안전에서 시작하세요 > H2:최저가 비용과 친절한 교육, {지역} {운전면허학원} > H2:대형/특수면허까지 한 번에 동양 {운전면허학원} > H2:베테랑 강사님의 꼼꼼한 교육, {지역} {운전면허학원} > H2:{지역} {지역} {운전면허학원}, 나에게 맞는 곳 선택 가이드 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 중구 운전면허학원 BEST 4곳 비교 분석! 합격률 높은 곳만 모아봤어요",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} {지역} {운전면허학원}, 현명하게 고르는 꿀팁 > H2:합격률 & 셔틀 노선 완벽한 {지역} 주요 {운전면허학원} {N}곳 (안전, 청구) > H2:친절한 강습과 편리함이 강점인 추가 추천 학원 (고려, 성당) > H2:나에게 꼭 맞는 {운전면허} 학원, 이렇게 선택하세요 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 남구 운전면허 학원 2026년 베스트 4곳: 합격 보장하는 운전 학원 추천",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:내게 딱 맞는 학원, 어떻게 골라야 할까 (핵심 체크리스트 {N}) > H2:{N}. {학원명} (광범위한 셔틀, 친절한 교육) > H2:실제 수강생이 말하는 '청구'는 > H2:{N}. {학원명} (체계적인 시스템, 높은 만족도) > H2:실제 수강생이 말하는 '안전'은 > H2:{N}. {학원명} (다양한 면허 취득 가능) > H2:실제 수강생이 말하는 '동양'은 > H2:{N}. {학원명} (합격을 위한 쪽집게 꿀팁)",
+      "count": 1,
+      "example_title": "대구 북구 칠곡 운전면허학원 꼼꼼 비교, 베스트 4곳 핵심 분석!",
+      "article_type": "cost_comparison"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} {운전면허}, 어디서 시작해야 할까 > H2:초보 합격률 높은 곳 ① {학원명} > H2:유쾌한 분위기 속 꿀팁 전수 ② {학원명} > H2:{지역}/유성 주민에게 강력 추천 ③ {학원명} > H2:나에게 맞는 {운전면허} 학원 선택 최종 가이드 > H2:마무리",
+      "count": 1,
+      "example_title": "대전 운전면허학원 3곳 비교: 초보도 합격하는 BEST 학원 선택 가이드",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:논산 {운전면허학원}, 어디로 가야 할까 > H2:꼼꼼한 교육과 편리한 셔틀, {학원명} > H2:넓은 셔틀망과 친절한 강사진, {학원명} > H2:만족도 높은 합격 보장, {학원명} > H2:나에게 맞는 {운전면허학원} 선택 꿀팁 > H2:마무리",
+      "count": 1,
+      "example_title": "논산 운전면허학원 3곳 완벽 비교! 합격률 높은 곳은 여기!",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{학원명}: {지역} 주요 {지역} 셔틀, 친절한 교육의 명가 > H2:{학원명}: 빠른 면허 취득, 합격 보장 맞춤 코스 > H2:{학원명}: 다양한 면허 과정과 넓은 셔틀 노선망 > H2:{학원명}: 강사 친절도 최상 실전 주행 완벽 대비 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 동구 혁신도시 운전면허학원 완벽 분석! 초보자도 안심하는 추천 4곳",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{운전면허}, {지역} 수성구에서 따야 하는 이유 > H2:합격률 높은 친절함 {학원명} 완전 분석 > H2:{지역} {지역} 셔틀 {학원명} 장점은 > H2:꼼꼼한 교육과 넓은 셔틀 노선 {학원명} > H2:나에게 맞는 {지역} {지역} {운전면허학원} 선택 가이드 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 수성구 운전면허학원 핵심 3곳 추천! 셔틀 운행 지역 총정리",
+      "article_type": "local_access"
+    },
+    {
+      "pattern_type": "heading_flow",
+      "pattern": "H2:{지역} {지역} {지역} {운전면허}, 현명한 학원 선택 가이드 > H2:{학원명}: {지역} 핵심 위치와 친절한 강사진 > H2:{학원명}: 대곡동에 위치한 탄탄한 커리큘럼 > H2:{학원명}: 달서구까지 닿는 넓은 셔틀 운행 > H2:{학원명}: 다양한 면허 종류와 편리한 접근성 > H2:마무리",
+      "count": 1,
+      "example_title": "대구 달서구 월성동 운전면허학원 4곳 추천: 2026년 최신 정보 완벽 비교",
+      "article_type": "cost_comparison"
+    }
+  ]
+}

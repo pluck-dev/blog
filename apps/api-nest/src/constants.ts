@@ -4,13 +4,26 @@ export type JobKind = "generate" | "dedup" | "indexing" | "prune";
 
 export const AXES: AxisName[] = ["region", "keyword", "intent", "persona", "modifier"];
 
+export const DRIVING_ORIGINAL_TEMPLATE_IDS = [
+  "T01", "T03", "T04", "T05", "T06", "T07",
+  "T08", "T09", "T10", "T11", "T12", "T13", "T14", "T15"
+] as const;
+
 export const TEMPLATE_SPECS = {
-  T01: { name: "지역 BEST5", primary: ["region"], use_persona: true, modifier_count: 2, weight: 1.0, min_sv: 500 },
-  T03: { name: "가이드 총정리", primary: ["keyword"], use_persona: true, modifier_count: 1, weight: 0.9, min_sv: 800 },
-  T04: { name: "옵션 비교", primary: ["keyword"], use_persona: true, modifier_count: 0, weight: 0.7, min_sv: 400 },
-  T05: { name: "비용 절약 전략", primary: ["keyword"], use_persona: true, modifier_count: 1, weight: 0.95, min_sv: 600 },
-  T06: { name: "시험/리스크 BEST5", primary: ["keyword"], use_persona: false, modifier_count: 0, weight: 0.85, min_sv: 1000, with_intent: true },
-  T07: { name: "허브", primary: ["region"], use_persona: false, modifier_count: 0, weight: 1.2, min_sv: 1500, with_intent: true }
+  T01: { name: "지역 학원 BEST 비교", primary: ["region"], use_persona: true, modifier_count: 2, weight: 1.0, min_sv: 0, kind: "local_best" },
+  T03: { name: "운전면허 가이드 총정리", primary: ["keyword"], use_persona: true, modifier_count: 1, weight: 0.9, min_sv: 0, kind: "general_guide" },
+  T04: { name: "면허 종류/옵션 비교", primary: ["keyword"], use_persona: true, modifier_count: 0, weight: 0.7, min_sv: 0, kind: "license_compare" },
+  T05: { name: "비용 및 시간 절약 전략", primary: ["keyword"], use_persona: true, modifier_count: 1, weight: 0.95, min_sv: 0, kind: "cost_strategy" },
+  T06: { name: "시험 단계 집중 BEST", primary: ["keyword"], use_persona: false, modifier_count: 0, weight: 0.85, min_sv: 0, with_intent: true, kind: "exam_best" },
+  T07: { name: "지역 허브 총정리", primary: ["region"], use_persona: false, modifier_count: 0, weight: 1.2, min_sv: 0, with_intent: true, kind: "regional_hub" },
+  T08: { name: "운전면허 필기시험 접수", primary: ["keyword"], use_persona: false, modifier_count: 0, weight: 1.05, min_sv: 0, with_intent: true, kind: "written_registration" },
+  T09: { name: "운전면허 필기시험 팁", primary: ["keyword"], use_persona: true, modifier_count: 1, weight: 1.0, min_sv: 0, kind: "written_tips" },
+  T10: { name: "운전면허 필기시험 앱 추천", primary: ["keyword"], use_persona: true, modifier_count: 0, weight: 0.9, min_sv: 0, kind: "written_app" },
+  T11: { name: "지역 운전면허시험장 소개", primary: ["region"], use_persona: false, modifier_count: 0, weight: 0.95, min_sv: 0, with_intent: true, kind: "test_center" },
+  T12: { name: "운전면허 취득 총정리", primary: ["keyword"], use_persona: true, modifier_count: 1, weight: 1.0, min_sv: 0, kind: "license_complete" },
+  T13: { name: "특정 타겟 맞춤형", primary: ["keyword"], use_persona: true, modifier_count: 1, weight: 0.85, min_sv: 0, kind: "persona_target" },
+  T14: { name: "전문학원 단독 소개", primary: ["region"], use_persona: true, modifier_count: 0, weight: 0.9, min_sv: 0, kind: "academy_profile" },
+  T15: { name: "지역+시험단계 혼합", primary: ["region"], use_persona: true, modifier_count: 1, weight: 0.9, min_sv: 0, with_intent: true, kind: "local_exam_mix" }
 } as const;
 
 export const DESIGN_TEMPLATES = [
@@ -38,14 +51,24 @@ export const PRESETS: Record<string, Record<AxisName, Array<Record<string, unkno
     ],
     keyword: [
       { value: "운전면허학원", weight: 10, monthly_search_volume: 9900, competition_kd: 55 },
+      { value: "운전면허", weight: 10, monthly_search_volume: 12000, competition_kd: 48 },
+      { value: "운전면허 합격", weight: 9, monthly_search_volume: 10000, competition_kd: 45 },
       { value: "자동차학원", weight: 8, monthly_search_volume: 5400, competition_kd: 48 },
       { value: "1종보통", weight: 6, monthly_search_volume: 3600, competition_kd: 42 },
       { value: "2종보통", weight: 6, monthly_search_volume: 5400, competition_kd: 40 },
       { value: "운전면허 비용", weight: 7, monthly_search_volume: 4400, competition_kd: 38 },
       { value: "운전면허 필기시험", weight: 8, monthly_search_volume: 8100, competition_kd: 40 },
+      { value: "운전면허 필기시험 접수", weight: 8, monthly_search_volume: 7600, competition_kd: 38 },
+      { value: "운전면허 필기시험 팁", weight: 8, monthly_search_volume: 7200, competition_kd: 36 },
+      { value: "운전면허 필기시험 어플", weight: 7, monthly_search_volume: 6200, competition_kd: 34 },
+      { value: "운전면허시험장", weight: 7, monthly_search_volume: 6800, competition_kd: 42 },
+      { value: "운전면허 취득", weight: 7, monthly_search_volume: 6500, competition_kd: 40 },
+      { value: "운전면허 준비물", weight: 6, monthly_search_volume: 5200, competition_kd: 35 },
+      { value: "운전면허 기능시험", weight: 6, monthly_search_volume: 5800, competition_kd: 37 },
+      { value: "운전면허 도로주행", weight: 6, monthly_search_volume: 5600, competition_kd: 37 },
       { value: "운전연수", weight: 6, monthly_search_volume: 9900, competition_kd: 42 }
     ],
-    intent: ["비교추천", "가이드총정리", "비용절약", "후기리뷰", "시험팁"].map((value, i) => ({ value, weight: i < 2 ? 5 : i === 4 ? 4 : 3 })),
+    intent: ["비교추천", "가이드총정리", "비용절약", "후기리뷰", "시험팁", "접수방법", "준비물", "단기합격", "BEST", "가격비교"].map((value, i) => ({ value, weight: i < 4 ? 5 : i < 8 ? 4 : 3 })),
     persona: ["직장인", "대학생", "사회초년생", "주부", "노년층", "초보운전자"].map((value, i) => ({ value, weight: i < 2 ? 5 : i === 2 || i === 5 ? 4 : 3 })),
     modifier: ["최단기", "비용절약", "셔틀편리", "야간반", "주말반", "합격률높은", "가성비"].map((value, i) => ({ value, weight: i < 3 || i > 4 ? 4 : 3 }))
   },

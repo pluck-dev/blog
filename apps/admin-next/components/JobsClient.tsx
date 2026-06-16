@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { formatDateTime } from "@/lib/date";
 import type { Job } from "@/lib/types";
 
 export default function JobsClient() {
@@ -35,10 +36,10 @@ function JobCard({ job }: { job: Job }) {
   const done = Number(job.result_obj?.ok ?? 0) + Number(job.result_obj?.fail ?? 0);
   const percent = job.status === "done" ? 100 : job.status === "failed" ? 100 : job.status === "running" ? Math.max(20, Math.min(90, Math.round((done / total) * 100) || 35)) : 5;
   return <details className="card" open={job.status === "running" || job.status === "failed"}>
-    <summary className="spread" style={{ padding: 16, cursor: "pointer" }}><div className="row"><Status status={job.status} /><b>{job.kind}</b><Link href={`/t/${encodeURIComponent(job.tenant)}`} className="mono small">{job.tenant}</Link></div><span className="muted small">{job.scheduled_at}</span></summary>
+    <summary className="spread" style={{ padding: 16, cursor: "pointer" }}><div className="row"><Status status={job.status} /><b>{job.kind}</b><Link href={`/t/${encodeURIComponent(job.tenant)}`} className="mono small">{job.tenant}</Link></div><span className="muted small">{formatDateTime(job.scheduled_at)}</span></summary>
     <div className="card-pad" style={{ borderTop: "1px solid var(--line)" }}>
       <div className="progress"><span style={{ width: `${percent}%` }} /></div>
-      <p className="muted small">진행률 {percent}% · 시작 {job.started_at ?? "-"} · 완료 {job.finished_at ?? "-"}</p>
+      <p className="muted small">진행률 {percent}% · 시작 {formatDateTime(job.started_at)} · 완료 {formatDateTime(job.finished_at)}</p>
       {job.error && <p className="toast-error">{job.error}</p>}
       {job.result_obj && Object.keys(job.result_obj).length > 0 && <pre className="codebox small">{JSON.stringify(job.result_obj, null, 2)}</pre>}
       <details><summary className="small muted">payload</summary><pre className="codebox small">{JSON.stringify(job.payload_obj, null, 2)}</pre></details>

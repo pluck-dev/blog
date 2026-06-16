@@ -26,7 +26,7 @@ export class AdminController {
       templates: Object.keys(TEMPLATE_SPECS),
       template_specs: TEMPLATE_SPECS,
       design_templates: DESIGN_TEMPLATES,
-      providers: ["claude", "codex"],
+      providers: ["codex", "claude"],
       preset_options: Object.keys(PRESETS),
       indexing: { has_key: Boolean(this.db.getSetting("google_sa_json")), url_template: this.indexingUrlTemplate() }
     };
@@ -64,7 +64,7 @@ export class AdminController {
       slot_counts: this.db.countSlots(domain),
       settings: { indexing_has_key: Boolean(this.db.getSetting("google_sa_json")), indexing_url_template: this.indexingUrlTemplate() }
     };
-    if (include.has("slots")) payload.slots = this.db.listSlots(domain, { status: query.slot_status || undefined, template: query.slot_template || undefined, limit });
+    if (include.has("slots")) payload.slots = this.db.listSlots(domain, { status: query.slot_status || undefined, template: query.slot_template || undefined, q: query.slot_q || undefined, limit });
     if (include.has("posts")) payload.posts = this.db.listPosts(domain, { limit });
     if (include.has("academies")) payload.academies = this.db.listAcademies(domain, { limit });
     if (include.has("jobs")) payload.jobs = this.db.listJobs({ tenant: domain, limit }).map(jobOut);
@@ -118,8 +118,9 @@ export class AdminController {
   @Get("tenants/:domain/slots")
   listSlots(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Query() query: Row) {
     checkAuth(req, headers); this.requireTenant(domain);
-    const items = this.db.listSlots(domain, { status: query.status || undefined, template: query.template || undefined, limit: clampInt(query.limit, 300, 1, 1000) });
-    return { count: items.length, slot_counts: this.db.countSlots(domain), items };
+    const filters = { status: query.status || undefined, template: query.template || undefined, q: query.q || undefined };
+    const items = this.db.listSlots(domain, { ...filters, limit: clampInt(query.limit, 300, 1, 2000), offset: clampInt(query.offset, 0, 0, 1000000) });
+    return { count: items.length, total: this.db.countSlotsFiltered(domain, filters), slot_counts: this.db.countSlots(domain), items };
   }
 
   @Post("tenants/:domain/slots/generate")
@@ -185,9 +186,9 @@ export class AdminController {
   }
 
   @Post("tenants/:domain/sync/drivingplus/academies")
-  async syncDrivingplusAcademies(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string) {
+  async syncDrivingplusAcademies(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Body() body: Row = {}) {
     checkAuth(req, headers); this.requireTenant(domain);
-    const rows = await this.drivingplus.fetchAcademies();
+    const rows = await this.drivingplus.fetchAcademies({ includeBlogReviews: body.include_blog_reviews !== false, blogReviewLimit: clampInt(body.blog_review_limit, 3, 1, 10) });
     return { ok: true, ...this.db.upsertDrivingplusAcademies(domain, rows) };
   }
 
@@ -215,7 +216,7 @@ export class AdminController {
     const regions = await this.drivingplus.fetchSeoRegions(level);
     const regionSummary = this.db.upsertSeoRegions(domain, regions);
     if (body.replace_axis) this.db.bulkReplaceAxis(domain, "region", regions.map((r) => ({ value: r.region, weight: r.level === 2 ? 5 : 3, monthly_search_volume: null, competition_kd: null })));
-    const academies = await this.drivingplus.fetchAcademies();
+    const academies = await this.drivingplus.fetchAcademies({ includeBlogReviews: body.include_blog_reviews !== false, blogReviewLimit: clampInt(body.blog_review_limit, 3, 1, 10) });
     const academySummary = this.db.upsertDrivingplusAcademies(domain, academies);
     return { ok: true, regions: regionSummary, academies: academySummary, axis_replaced: Boolean(body.replace_axis), level };
   }
@@ -228,9 +229,14 @@ export class AdminController {
   @Post("tenants/:domain/jobs/generate")
   enqueueGenerate(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Body() body: Row) {
     checkAuth(req, headers); this.requireTenant(domain);
-    if (!Array.isArray(body.slot_ids) || !body.slot_ids.length) throw new HttpException("slot_ids required", 400);
-    const job_id = this.db.enqueueJob(domain, "generate", { slot_ids: body.slot_ids, provider: body.provider || "claude", model: String(body.model || "").trim(), design_template_id: body.design_template_id, use_web_research: body.use_web_research ?? true, cooldown_sec: body.cooldown_sec ?? 60, timeout_sec: body.timeout_sec ?? 600 });
-    return { ok: true, job_id };
+    let slotIds = Array.isArray(body.slot_ids) ? body.slot_ids.map((id: any) => String(id)).filter(Boolean) : [];
+    if (!slotIds.length) {
+      const picked = this.db.selectSlotsForBatch(domain, { q: body.q || undefined, template: body.template || undefined, limit: clampInt(body.max, 10, 1, 500), balanced: Boolean(body.balanced) });
+      slotIds = picked.map((s) => s.slot_id);
+    }
+    if (!slotIds.length) throw new HttpException("작성할 planned 슬롯이 없습니다. 검색어나 상태를 확인하세요.", 400);
+    const job_id = this.db.enqueueJob(domain, "generate", { slot_ids: slotIds, provider: body.provider || "codex", model: String(body.model || "").trim(), design_template_id: body.design_template_id, use_web_research: body.use_web_research ?? true, cooldown_sec: body.cooldown_sec ?? 60, timeout_sec: body.timeout_sec ?? 600 });
+    return { ok: true, job_id, slot_count: slotIds.length };
   }
   @Post("tenants/:domain/jobs/dedup")
   enqueueDedup(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Body() body: Row) {

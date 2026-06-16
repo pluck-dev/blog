@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, enqueueGenerate, getOptions, getTenantDetail, replaceAxis, syncDrivingplusAcademies, syncDrivingplusRegions, updateTenant } from "@/lib/api";
+import { api, enqueueGenerate, getOptions, getTenantDetail, listSlots, replaceAxis, syncDrivingplusAcademies, syncDrivingplusRegions, updateTenant } from "@/lib/api";
+import { formatDateTime } from "@/lib/date";
 import type { Academy, AdminOptions, Axis, AxisValue, Job, PostSummary, Provider, Slot, SlotCounts, Tenant, TenantDetailPayload } from "@/lib/types";
 
 const AXES: Axis[] = ["region", "keyword", "intent", "persona", "modifier"];
@@ -22,7 +23,7 @@ const AXIS_PLACEHOLDER: Record<Axis, string> = {
 };
 const TABS = [
   ["overview", "개요"], ["plan", "기획"], ["templates", "글유형/디자인"], ["axes", "축"],
-  ["academies", "학원자료"], ["slots", "슬롯"], ["posts", "글"], ["settings", "설정"],
+  ["academies", "학원자료"], ["slots", "슬롯"], ["jobs", "작업"], ["posts", "글"], ["settings", "설정"],
 ] as const;
 
 const PREVIEW_DESIGN_SPECS: Record<string, { topCta: string; bottomCta: string }> = {
@@ -183,7 +184,8 @@ export default function TenantClient({ domain }: { domain: string }) {
       {tab === "templates" && <Templates tenant={tenant} options={options} busy={busy} onSave={saveTenant} />}
       {tab === "axes" && <Axes tenant={tenant} axes={payload.axes} options={options} onRefresh={refresh} />}
       {tab === "academies" && <Academies tenant={tenant} academies={payload.academies ?? []} onRefresh={refresh} />}
-      {tab === "slots" && <Slots tenant={tenant} slots={payload.slots ?? []} options={options} onRefresh={refresh} />}
+      {tab === "slots" && <Slots tenant={tenant} slots={payload.slots ?? []} options={options} onRefresh={refresh} onTab={setTab} />}
+      {tab === "jobs" && <Jobs tenant={tenant} jobs={payload.jobs ?? []} onRefresh={refresh} />}
       {tab === "posts" && <Posts tenant={tenant} posts={payload.posts ?? []} onRefresh={refresh} />}
       {tab === "settings" && <Settings tenant={tenant} options={options} onSave={saveTenant} onRefresh={refresh} />}
     </div>
@@ -196,6 +198,7 @@ function Workflow({ tenant, counts, active, onTab }: { tenant: Tenant; counts: S
     { tab: "plan", title: "기획", done: Boolean(tenant.content_brief), count: tenant.content_brief ? "완료" : "필요" },
     { tab: "templates", title: "유형/디자인", done: tenant.templates_enabled.length > 0, count: `${tenant.templates_enabled.length}개` },
     { tab: "slots", title: "후보/작성", done: totalSlots > 0, count: `${totalSlots}개` },
+    { tab: "jobs", title: "작업", done: counts.in_progress > 0 || counts.published > 0, count: counts.in_progress > 0 ? `${counts.in_progress}개 진행` : "상태 확인" },
     { tab: "posts", title: "완성", done: counts.published > 0, count: `${counts.published}개` },
   ];
   return <div className="workflow" style={{ marginBottom: 20 }}>{steps.map((s, i) => <button key={s.tab} className={`step ${s.done ? "done" : ""} ${active === s.tab ? "active" : ""}`} onClick={() => onTab(s.tab)}><b>{i + 1}. {s.title}</b><p className="muted small">{s.count}</p></button>)}</div>;
@@ -287,7 +290,7 @@ function Axes({ tenant, axes, options, onRefresh }: { tenant: Tenant; axes: Tena
   async function ai(form: HTMLFormElement) { setAiBusy(true); try { const fd = new FormData(form); await api(`/tenants/${encodeURIComponent(tenant.domain)}/axes/ai-fill`, { method: "POST", body: JSON.stringify({ provider: fd.get("provider"), model: fd.get("model"), extra_context: fd.get("extra_context"), timeout_sec: 300 }) }); await onRefresh(); } catch (e) { alert((e as Error).message); } finally { setAiBusy(false); } }
   return <div className="grid">
     <div className="grid grid-2">
-      <form className="card card-pad grid" onSubmit={(e) => { e.preventDefault(); ai(e.currentTarget); }}><h2>🤖 AI로 축 자동 생성</h2><textarea className="textarea" name="extra_context" placeholder="추가 컨텍스트" /><div className="row"><select className="select" name="provider" style={{ maxWidth: 160 }}><option>claude</option><option>codex</option></select><input className="input" name="model" placeholder="모델 선택" style={{ maxWidth: 180 }} /><button className="btn primary" disabled={aiBusy}>{aiBusy ? "생성 중..." : "생성"}</button></div></form>
+      <form className="card card-pad grid" onSubmit={(e) => { e.preventDefault(); ai(e.currentTarget); }}><h2>🤖 AI로 축 자동 생성</h2><textarea className="textarea" name="extra_context" placeholder="추가 컨텍스트" /><div className="row"><select className="select" name="provider" style={{ maxWidth: 160 }}><option>codex</option><option>claude</option></select><input className="input" name="model" placeholder="모델 선택" style={{ maxWidth: 180 }} /><button className="btn primary" disabled={aiBusy}>{aiBusy ? "생성 중..." : "생성"}</button></div></form>
       <form className="card card-pad grid" onSubmit={(e) => { e.preventDefault(); if (confirm("현재 축을 프리셋으로 덮어쓸까요?")) preset(e.currentTarget); }}><h2>프리셋 적용</h2><select className="select" name="preset_key">{options.preset_options.map((p) => <option key={p}>{p}</option>)}</select><button className="btn">덮어쓰기</button></form>
     </div>
     {AXES.map((axis) => <form key={axis} className="card card-pad grid" onSubmit={(e) => { e.preventDefault(); saveAxis(axis, e.currentTarget); }}><div className="spread"><h2>{axis} 축 ({axes[axis]?.length ?? 0}개)</h2><button className="btn primary">저장</button></div><textarea className="textarea mono" name="values" rows={6} defaultValue={(axes[axis] ?? []).map((r) => `${r.value},${r.weight},${r.monthly_search_volume ?? ""},${r.competition_kd ?? ""}`).join("\n")} placeholder="값,가중치,월검색량,KD" /></form>)}
@@ -305,8 +308,8 @@ function Academies({ tenant, academies, onRefresh }: { tenant: Tenant; academies
   async function syncAcademies() {
     setSyncBusy("academies");
     try {
-      const res = await syncDrivingplusAcademies(tenant.domain);
-      setSyncResult(`학원 ${res.fetched}개 조회 · ${res.upserted}개 반영 · ${res.skipped}개 제외${res.warnings?.length ? ` · 경고 ${res.warnings.length}개` : ""}`);
+      const res = await syncDrivingplusAcademies(tenant.domain, { include_blog_reviews: true, blog_review_limit: 3 });
+      setSyncResult(`학원/리뷰 ${res.fetched}개 조회 · ${res.upserted}개 반영 · ${res.skipped}개 제외${res.warnings?.length ? ` · 경고 ${res.warnings.length}개` : ""}`);
       await onRefresh();
     } catch (e) { alert((e as Error).message); }
     finally { setSyncBusy(""); }
@@ -329,26 +332,131 @@ function Academies({ tenant, academies, onRefresh }: { tenant: Tenant; academies
         <div className="row" style={{ alignItems: "end" }}><button className="btn" onClick={syncRegions} disabled={Boolean(syncBusy)}>{syncBusy === "regions" ? "지역 동기화 중..." : "지역 동기화"}</button><button className="btn primary" onClick={syncAcademies} disabled={Boolean(syncBusy)}>{syncBusy === "academies" ? "학원 동기화 중..." : "학원 동기화"}</button></div>
       </div>
       {syncResult && <p className="small badge success" style={{ width: "fit-content" }}>{syncResult}</p>}
-      <p className="muted small">권장 순서: 지역 동기화(level=2, 축 교체) → 학원 동기화 → 슬롯 탭에서 후보 생성.</p>
+      <p className="muted small">권장 순서: 지역 동기화(level=2, 축 교체) → 학원 동기화(사진·별점리뷰·블로그 리뷰 포함) → 슬롯 탭에서 후보 생성.</p>
     </div>
-    <div className="card card-pad"><p className="muted">슬롯 지역과 일치하거나 가까운 학원 자료가 생성 프롬프트에 주입됩니다. DrivingPlus 학원은 SEO 설명, vphone, 사진 URL도 함께 사용됩니다.</p></div>
+    <div className="card card-pad"><p className="muted">슬롯 지역과 일치하거나 가까운 학원 자료가 생성 프롬프트에 주입됩니다. DrivingPlus 학원은 SEO 설명, vphone, 사진 URL, 별점 리뷰, 블로그 리뷰글도 함께 사용됩니다.</p></div>
     <form className="card card-pad grid" onSubmit={(e) => { e.preventDefault(); add(e.currentTarget); }}><h2>학원 1곳 추가</h2><div className="grid grid-3">{["region","name","address","price","shuttle","hours","pass_rate","phone","source_name","source_url","review"].map((n) => <input key={n} className="input" name={n} placeholder={n} required={n === "name"} />)}</div><button className="btn primary">추가</button></form>
     <form className="card card-pad grid" onSubmit={(e) => { e.preventDefault(); bulk(e.currentTarget); }}><h2>JSON 일괄 업로드</h2><textarea className="textarea mono" name="json" placeholder='[{"region":"대구","name":"OO학원","price":"65만원"}]' /><button className="btn">업로드</button></form>
     <div className="table-wrap"><table><thead><tr><th>지역</th><th>학원명</th><th>전화/사진</th><th>SEO 설명</th><th>출처</th><th></th></tr></thead><tbody>{academies.map((a) => {
       const photoCount = parsePhotoCount(a.photos);
-      return <tr key={a.id}><td>{a.region}</td><td><b>{a.name}</b><p className="muted small">{a.address}</p><p className="muted small">{a.academy_type || ""}{a.external_id ? ` · #${a.external_id}` : ""}</p></td><td>{a.vphone || a.phone}<p className="muted small">{photoCount ? `사진 ${photoCount}장` : "사진 없음"}</p></td><td><span className="small">{a.seo_description || a.review || "-"}</span></td><td>{a.source_url ? <a href={a.source_url} target="_blank">{a.source_name || "링크"}</a> : a.source_name}</td><td><button className="btn danger" onClick={() => del(a.id)}>삭제</button></td></tr>;
+      const reviewCount = parseJsonCount(a.review_json);
+      const blogReviewCount = parseJsonCount(a.blog_reviews);
+      return <tr key={a.id}><td>{a.region}</td><td><b>{a.name}</b><p className="muted small">{a.address}</p><p className="muted small">{a.academy_type || ""}{a.external_id ? ` · #${a.external_id}` : ""}</p></td><td>{a.vphone || a.phone}<p className="muted small">{photoCount ? `사진 ${photoCount}장` : "사진 없음"} · 리뷰 {reviewCount}개 · 블로그 {blogReviewCount}개</p></td><td><span className="small">{a.seo_description || a.review || "-"}</span></td><td>{a.source_url ? <a href={a.source_url} target="_blank">{a.source_name || "링크"}</a> : a.source_name}</td><td><button className="btn danger" onClick={() => del(a.id)}>삭제</button></td></tr>;
     })}</tbody></table></div>
   </div>;
 }
 
-function Slots({ tenant, slots, options, onRefresh }: { tenant: Tenant; slots: Slot[]; options: AdminOptions; onRefresh: () => Promise<void> }) {
-  const [selected, setSelected] = useState(new Set<string>()); const [status, setStatus] = useState("planned"); const [template, setTemplate] = useState(""); const [q, setQ] = useState(""); const [provider, setProvider] = useState<Provider>("claude"); const [model, setModel] = useState(""); const [cooldown, setCooldown] = useState(60); const [timeout, setTimeout] = useState(600); const [web, setWeb] = useState(true); const [max, setMax] = useState(200);
-  const filtered = slots.filter((s) => (!status || s.status === status) && (!template || s.template_id === template) && (!q || `${s.primary_keyword} ${s.slot_id}`.toLowerCase().includes(q.toLowerCase())));
+function Slots({ tenant, slots, options, onRefresh, onTab }: { tenant: Tenant; slots: Slot[]; options: AdminOptions; onRefresh: () => Promise<void>; onTab: (v: string) => void }) {
+  const [selected, setSelected] = useState(new Set<string>());
+  const [status, setStatus] = useState("planned");
+  const [template, setTemplate] = useState("");
+  const [q, setQ] = useState("");
+  const [provider, setProvider] = useState<Provider>("codex");
+  const [model, setModel] = useState("");
+  const [cooldown, setCooldown] = useState(60);
+  const [timeout, setTimeout] = useState(600);
+  const [web, setWeb] = useState(true);
+  const [max, setMax] = useState(200);
+  const [remoteSlots, setRemoteSlots] = useState(slots);
+  const [remoteTotal, setRemoteTotal] = useState(slots.length);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [slotError, setSlotError] = useState("");
+
+  useEffect(() => { setRemoteSlots(slots); setRemoteTotal(slots.length); }, [slots]);
+
+  async function loadCurrentSlots() {
+    setLoadingSlots(true); setSlotError("");
+    try {
+      const payload = await listSlots(tenant.domain, { status, template, q, limit: 1000 });
+      setRemoteSlots(payload.items); setRemoteTotal(payload.total ?? payload.count);
+    } catch (err) { setSlotError(err instanceof Error ? err.message : String(err)); }
+    finally { setLoadingSlots(false); }
+  }
+  useEffect(() => {
+    let cancelled = false;
+    const handle = window.setTimeout(async () => {
+      setLoadingSlots(true); setSlotError("");
+      try {
+        const payload = await listSlots(tenant.domain, { status, template, q, limit: 1000 });
+        if (!cancelled) { setRemoteSlots(payload.items); setRemoteTotal(payload.total ?? payload.count); setSelected(new Set()); }
+      } catch (err) { if (!cancelled) setSlotError(err instanceof Error ? err.message : String(err)); }
+      finally { if (!cancelled) setLoadingSlots(false); }
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(handle); };
+  }, [tenant.domain, status, template, q]);
+
+  const filtered = remoteSlots;
   const expectedMinutes = Math.max(1, Math.ceil(((selected.size || 1) * (cooldown + 30)) / 60));
-  async function gen() { await api(`/tenants/${encodeURIComponent(tenant.domain)}/slots/generate`, { method: "POST", body: JSON.stringify({ max_per_template: max }) }); await onRefresh(); }
-  async function queue(ids: string[]) { if (!ids.length) return; const r = await enqueueGenerate(tenant.domain, { slot_ids: ids, provider, model, design_template_id: tenant.design_template_id, use_web_research: web, cooldown_sec: cooldown, timeout_sec: timeout }); alert(`작업 큐 등록: ${r.job_id}`); setSelected(new Set()); await onRefresh(); }
-  async function delSelected() { if (!confirm(`${selected.size}개 삭제?`)) return; for (const id of selected) await api(`/tenants/${encodeURIComponent(tenant.domain)}/slots/${id}`, { method: "DELETE" }); setSelected(new Set()); await onRefresh(); }
-  return <div className="grid"><div className="card card-pad grid"><h2>글 후보 만들기/작성</h2><div className="grid grid-4"><Field label="템플릿당 최대"><input className="input" type="number" value={max} onChange={(e) => setMax(Number(e.target.value))} /></Field><Field label="작성 엔진"><select className="select" value={provider} onChange={(e) => setProvider(e.target.value as Provider)}>{options.providers.map((p) => <option key={p}>{p}</option>)}</select></Field><Field label="모델"><input className="input" value={model} onChange={(e) => setModel(e.target.value)} /></Field><Field label="제한시간"><input className="input" type="number" value={timeout} onChange={(e) => setTimeout(Number(e.target.value))} /></Field></div><div className="row"><button className="btn primary" onClick={gen}>재료로 글 후보 만들기</button><button className="btn" onClick={() => queue(filtered.slice(0,1).map((s) => s.slot_id))}>글 1개 바로 작성</button><label className="row small"><input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} /> 웹 자료 수집 후 작성</label><Field label="대량 대기시간"><input className="input" type="number" value={cooldown} onChange={(e) => setCooldown(Number(e.target.value))} /></Field></div><div className="writer-hint"><b>작성 옵션</b><span>{provider}{model ? ` / ${model}` : ""}</span><span>디자인 {tenant.design_template_id ?? "editorial"}</span><span>웹자료 {web ? "사용" : "미사용"}</span><span>선택 기준 예상 {expectedMinutes}분</span></div></div><div className="row"><select className="select" style={{ width: 150 }} value={status} onChange={(e) => setStatus(e.target.value)}><option value="">전체 상태</option>{["planned","in_progress","published","failed","pruned"].map((s) => <option key={s}>{s}</option>)}</select><select className="select" style={{ width: 150 }} value={template} onChange={(e) => setTemplate(e.target.value)}><option value="">전체 유형</option>{options.templates.map((t) => <option key={t}>{t}</option>)}</select><input className="input" style={{ width: 240 }} placeholder="검색" value={q} onChange={(e) => setQ(e.target.value)} /><span className="muted small">{selected.size}개 선택 / {filtered.length}개</span><button className="btn primary" disabled={!selected.size} onClick={() => queue(Array.from(selected))}>선택 글 작성</button><button className="btn danger" disabled={!selected.size} onClick={delSelected}>삭제</button></div><div className="table-wrap"><table><thead><tr><th><input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={() => setSelected(selected.size === filtered.length ? new Set() : new Set(filtered.map((s) => s.slot_id)))} /></th><th>유형</th><th>키워드</th><th>지역</th><th>페르소나</th><th>점수</th><th>상태</th></tr></thead><tbody>{filtered.slice(0,300).map((s) => <tr key={s.slot_id}><td><input type="checkbox" checked={selected.has(s.slot_id)} onChange={() => setSelected((p) => { const n = new Set(p); n.has(s.slot_id) ? n.delete(s.slot_id) : n.add(s.slot_id); return n; })} /></td><td><span className="badge">{s.template_id}</span></td><td><b>{s.primary_keyword}</b><p className="muted small mono">{s.slot_id}</p>{s.last_error && <p className="small" style={{ color: "var(--danger)" }}>{s.last_error}</p>}</td><td>{s.region ?? "-"}</td><td>{s.persona ?? "-"}</td><td>{s.priority_score?.toFixed(1) ?? "-"}</td><td><Status status={s.status} /></td></tr>)}</tbody></table></div></div>;
+  const selectedAllVisible = filtered.length > 0 && filtered.every((s) => selected.has(s.slot_id));
+  const writerPayload = { provider, model, design_template_id: tenant.design_template_id, use_web_research: web, cooldown_sec: cooldown, timeout_sec: timeout };
+
+  async function gen() { await api(`/tenants/${encodeURIComponent(tenant.domain)}/slots/generate`, { method: "POST", body: JSON.stringify({ max_per_template: max }) }); await onRefresh(); await loadCurrentSlots(); }
+  async function queue(ids: string[]) { if (!ids.length) return; const r = await enqueueGenerate(tenant.domain, { slot_ids: ids, ...writerPayload }); alert(`작업 큐 등록: ${r.job_id} · ${r.slot_count ?? ids.length}개\\n작업 탭에서 진행상태를 확인하세요.`); setSelected(new Set()); await onRefresh(); await loadCurrentSlots(); onTab("jobs"); }
+  async function smartQueue(label: string, body: Record<string, unknown>) {
+    const count = Number(body.max || 1);
+    if (count >= 50 && !confirm(`${label}: ${count}개 글 작성을 큐에 등록할까요?`)) return;
+    const r = await enqueueGenerate(tenant.domain, { ...body, ...writerPayload });
+    alert(`${label} 큐 등록: ${r.job_id} · ${r.slot_count ?? count}개\\n작업 탭에서 진행상태를 확인하세요.`);
+    setSelected(new Set()); await onRefresh(); await loadCurrentSlots(); onTab("jobs");
+  }
+  async function delSelected() { if (!confirm(`${selected.size}개 삭제?`)) return; for (const id of selected) await api(`/tenants/${encodeURIComponent(tenant.domain)}/slots/${id}`, { method: "DELETE" }); setSelected(new Set()); await onRefresh(); await loadCurrentSlots(); }
+  function toggleAllVisible() { setSelected((prev) => { if (selectedAllVisible) return new Set(); const next = new Set(prev); for (const s of filtered) next.add(s.slot_id); return next; }); }
+
+  return <div className="grid"><div className="card card-pad grid"><h2>글 후보 만들기/작성</h2><div className="grid grid-4"><Field label="템플릿당 최대"><input className="input" type="number" value={max} onChange={(e) => setMax(Number(e.target.value))} /></Field><Field label="작성 엔진"><select className="select" value={provider} onChange={(e) => setProvider(e.target.value as Provider)}>{options.providers.map((p) => <option key={p}>{p}</option>)}</select></Field><Field label="모델"><input className="input" value={model} onChange={(e) => setModel(e.target.value)} placeholder="비우면 기본 codex" /></Field><Field label="제한시간"><input className="input" type="number" value={timeout} onChange={(e) => setTimeout(Number(e.target.value))} /></Field></div><div className="row"><button className="btn primary" onClick={gen}>재료로 글 후보 만들기</button><button className="btn" onClick={() => smartQueue("1개 테스트 작성", { max: 1, q, template })}>1개 테스트 작성</button><button className="btn" onClick={() => smartQueue("현재 검색 10개 작성", { max: 10, q, template })}>현재 검색 10개 작성</button><button className="btn" onClick={() => smartQueue("전국 골고루 100개 작성", { max: 100, balanced: true })}>전국 골고루 100개 작성</button><label className="row small"><input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} /> 웹 자료 수집 후 작성</label><Field label="대량 대기시간"><input className="input" type="number" value={cooldown} onChange={(e) => setCooldown(Number(e.target.value))} /></Field></div><div className="writer-hint"><b>작성 옵션</b><span>{provider}{model ? ` / ${model}` : " / 기본"}</span><span>디자인 {tenant.design_template_id ?? "editorial"}</span><span>웹자료 {web ? "사용" : "미사용"}</span><span>선택 기준 예상 {expectedMinutes}분</span></div><p className="muted small">추천 흐름: 1개 테스트 작성 → QA 확인 → 현재 검색 10개 → 전국 골고루 100개. 전국 작성은 지역을 라운드로빈으로 섞어 특정 지역 쏠림을 줄입니다.</p></div><div className="row"><select className="select" style={{ width: 150 }} value={status} onChange={(e) => setStatus(e.target.value)}><option value="">전체 상태</option>{["planned","in_progress","published","failed","pruned"].map((s) => <option key={s}>{s}</option>)}</select><select className="select" style={{ width: 150 }} value={template} onChange={(e) => setTemplate(e.target.value)}><option value="">전체 유형</option>{options.templates.map((t) => <option key={t}>{t}</option>)}</select><input className="input" style={{ width: 320 }} placeholder="지역/키워드/슬롯 검색 예: 서울, 강남구" value={q} onChange={(e) => setQ(e.target.value)} />{["서울","강남구","송파구","경기","부산","대구","제주"].map((label) => <button className="btn" key={label} onClick={() => setQ(label)}>{label}</button>)}<span className="muted small">{selected.size}개 선택 / {remoteTotal.toLocaleString()}개{loadingSlots ? " 검색 중" : ""}</span><button className="btn primary" disabled={!selected.size} onClick={() => queue(Array.from(selected))}>선택 글 작성</button><button className="btn danger" disabled={!selected.size} onClick={delSelected}>삭제</button></div><p className="muted small">슬롯은 전체 후보에서 서버 검색합니다. “현재 검색 10개 작성”은 검색어/유형 조건 안에서 주제가 겹치지 않게 선별합니다.</p>{slotError && <p className="small" style={{ color: "var(--danger)" }}>슬롯 검색 오류: {slotError}</p>}<div className="table-wrap"><table><thead><tr><th><input type="checkbox" checked={selectedAllVisible} onChange={toggleAllVisible} /></th><th>유형</th><th>키워드</th><th>지역</th><th>페르소나</th><th>점수</th><th>상태</th></tr></thead><tbody>{filtered.map((s) => <tr key={s.slot_id}><td><input type="checkbox" checked={selected.has(s.slot_id)} onChange={() => setSelected((p) => { const n = new Set(p); n.has(s.slot_id) ? n.delete(s.slot_id) : n.add(s.slot_id); return n; })} /></td><td><span className="badge">{s.template_id}</span></td><td><b>{s.primary_keyword}</b><p className="muted small mono">{s.slot_id}</p>{s.last_error && <p className="small" style={{ color: "var(--danger)" }}>{s.last_error}</p>}</td><td>{s.region ?? "-"}</td><td>{s.persona ?? "-"}</td><td>{s.priority_score?.toFixed(1) ?? "-"}</td><td><Status status={s.status} /></td></tr>)}</tbody></table></div></div>;
+}
+
+function Jobs({ tenant, jobs, onRefresh }: { tenant: Tenant; jobs: Job[]; onRefresh: () => Promise<void> }) {
+  const [status, setStatus] = useState("");
+  useEffect(() => {
+    const id = window.setInterval(() => onRefresh().catch(() => undefined), 3000);
+    return () => window.clearInterval(id);
+  }, [onRefresh]);
+  const filtered = jobs.filter((job) => !status || job.status === status);
+  const counts = jobs.reduce<Record<string, number>>((acc, job) => {
+    acc[job.status] = (acc[job.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const active = (counts.queued ?? 0) + (counts.running ?? 0);
+  return <div className="grid">
+    <div className="card card-pad grid">
+      <div className="spread"><div><h2>작업 상태판</h2><p className="muted">글 작성/중복검사/가지치기/색인 작업을 이 화면에서 바로 확인합니다. 3초마다 자동 새로고침됩니다.</p></div><button className="btn" onClick={onRefresh}>새로고침</button></div>
+      <div className="grid grid-4"><Stat label="대기" value={counts.queued ?? 0} /><Stat label="진행" value={counts.running ?? 0} /><Stat label="완료" value={counts.done ?? 0} accent /><Stat label="실패" value={counts.failed ?? 0} /></div>
+      <div className="writer-hint"><b>운영 순서</b><span>슬롯 탭에서 작성 등록</span><span>작업 탭에서 진행 확인</span><span>완료 후 글 탭에서 검수</span><span>필요 시 npm run worker:once</span></div>
+      {active > 0 && <p className="muted small">대기/진행 작업이 멈춰 있으면 서버 터미널에서 <code>npm run worker:once</code>를 실행해 처리할 수 있습니다.</p>}
+    </div>
+    <div className="row">
+      <select className="select" style={{ width: 180 }} value={status} onChange={(e) => setStatus(e.target.value)}><option value="">전체 상태</option>{["queued", "running", "done", "failed"].map((s) => <option key={s}>{s}</option>)}</select>
+      <span className="muted small">{filtered.length}개 표시 / 전체 {jobs.length}개</span>
+      <Link href="/jobs" className="btn">전체 작업 큐 열기</Link>
+    </div>
+    {filtered.length === 0 && <div className="card card-pad muted">아직 작업이 없습니다. 슬롯 탭에서 “1개 테스트 작성”부터 등록하세요.</div>}
+    <div className="grid">{filtered.map((job) => <TenantJobCard key={job.id} job={job} tenant={tenant} />)}</div>
+  </div>;
+}
+
+function TenantJobCard({ job, tenant }: { job: Job; tenant: Tenant }) {
+  const total = jobTotal(job);
+  const ok = num(job.result_obj?.ok);
+  const fail = num(job.result_obj?.fail);
+  const done = ok + fail;
+  const percent = job.status === "done" || job.status === "failed" ? 100 : job.status === "running" ? Math.max(20, Math.min(90, Math.round((done / Math.max(total, 1)) * 100) || 35)) : 5;
+  const slotIds = Array.isArray(job.payload_obj?.slot_ids) ? job.payload_obj.slot_ids : [];
+  return <details className="card" open={job.status === "running" || job.status === "failed"}>
+    <summary className="spread" style={{ padding: 16, cursor: "pointer" }}>
+      <div className="row"><Status status={job.status} /><b>{job.kind}</b><span className="muted small">{jobLabel(job)}</span></div>
+      <span className="muted small">{formatDateTime(job.scheduled_at)}</span>
+    </summary>
+    <div className="card-pad grid" style={{ borderTop: "1px solid var(--line)" }}>
+      <div className="progress"><span style={{ width: `${percent}%` }} /></div>
+      <div className="grid grid-4"><Stat label="대상" value={total} /><Stat label="성공" value={ok} accent /><Stat label="실패" value={fail} /><Stat label="진행률" value={percent} /></div>
+      <div className="writer-hint"><b>작업 옵션</b><span>엔진 {String(job.payload_obj?.provider ?? "codex")}</span><span>모델 {String(job.payload_obj?.model || "기본")}</span><span>디자인 {String(job.payload_obj?.design_template_id ?? tenant.design_template_id ?? "editorial")}</span><span>웹자료 {job.payload_obj?.use_web_research === false ? "미사용" : "사용"}</span></div>
+      <p className="muted small">예약 {formatDateTime(job.scheduled_at)} · 시작 {formatDateTime(job.started_at)} · 완료 {formatDateTime(job.finished_at)} · 대기 {String(job.payload_obj?.cooldown_sec ?? "-")}초 · 제한 {String(job.payload_obj?.timeout_sec ?? "-")}초</p>
+      {slotIds.length > 0 && <p className="muted small mono">슬롯 {slotIds.slice(0, 8).join(", ")}{slotIds.length > 8 ? ` 외 ${slotIds.length - 8}개` : ""}</p>}
+      {job.error && <p className="toast-error">{job.error}</p>}
+      {job.result_obj?.per_slot && <details><summary className="small muted">개별 결과 보기</summary><pre className="codebox small">{JSON.stringify(job.result_obj.per_slot, null, 2)}</pre></details>}
+      <details><summary className="small muted">원본 payload/result</summary><pre className="codebox small">{JSON.stringify({ payload: job.payload_obj, result: job.result_obj }, null, 2)}</pre></details>
+    </div>
+  </details>;
 }
 
 function Posts({ tenant, posts, onRefresh }: { tenant: Tenant; posts: PostSummary[]; onRefresh: () => Promise<void> }) {
@@ -357,7 +465,7 @@ function Posts({ tenant, posts, onRefresh }: { tenant: Tenant; posts: PostSummar
   async function job(kind: "dedup" | "prune" | "indexing") { const path = kind === "indexing" ? "indexing" : kind; await api(`/tenants/${encodeURIComponent(tenant.domain)}/jobs/${path}`, { method: "POST", body: JSON.stringify(kind === "dedup" ? { threshold: 0.75 } : kind === "prune" ? { min_body_chars: 700, stale_noindex_days: 90 } : { max: 200 }) }); alert(`${kind} 작업 등록`); }
   async function delSelected() { if (!confirm(`${selected.size}개 삭제?`)) return; for (const id of selected) await api(`/tenants/${encodeURIComponent(tenant.domain)}/posts/${id}`, { method: "DELETE" }); setSelected(new Set()); await onRefresh(); }
   function downloadMarkdown() { const chosen = posts.filter((p) => selected.has(p.id)); const text = chosen.map((p) => `# ${p.title}\n\nslug: ${p.slug}\n`).join("\n---\n"); const url = URL.createObjectURL(new Blob([text], { type: "text/markdown" })); const a = document.createElement("a"); a.href = url; a.download = `${tenant.domain}-posts.md`; a.click(); URL.revokeObjectURL(url); }
-  return <div className="grid"><div className="row"><input className="input" style={{ width: 260 }} placeholder="제목/슬러그 검색" value={q} onChange={(e) => setQ(e.target.value)} /><span className="muted small">{selected.size}개 선택 / {filtered.length}개</span><button className="btn" onClick={() => job("dedup")} disabled={posts.length < 2}>중복 검사</button><button className="btn" onClick={() => job("prune")} disabled={!posts.length}>가지치기</button><button className="btn" onClick={() => job("indexing")} disabled={!posts.length}>색인 요청</button><button className="btn" onClick={downloadMarkdown} disabled={!selected.size}>Markdown Export</button><button className="btn danger" onClick={delSelected} disabled={!selected.size}>삭제</button></div><div className="table-wrap"><table><thead><tr><th><input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={() => setSelected(selected.size === filtered.length ? new Set() : new Set(filtered.map((p) => p.id)))} /></th><th>제목</th><th>디자인</th><th>자수</th><th>provider</th><th>$</th><th>생성일</th></tr></thead><tbody>{filtered.map((p) => <tr key={p.id}><td><input type="checkbox" checked={selected.has(p.id)} onChange={() => setSelected((prev) => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} /></td><td><Link href={`/t/${encodeURIComponent(tenant.domain)}/post/${p.id}`}><b>{p.title}</b></Link><p className="muted small mono">{p.slug}</p></td><td><span className="badge">{p.design_template_id ?? tenant.design_template_id}</span></td><td>{p.body_chars?.toLocaleString()}</td><td>{p.provider}</td><td>{p.cost_usd ? p.cost_usd.toFixed(3) : "-"}</td><td className="small muted">{p.generated_at}</td></tr>)}</tbody></table></div></div>;
+  return <div className="grid"><div className="row"><input className="input" style={{ width: 260 }} placeholder="제목/슬러그 검색" value={q} onChange={(e) => setQ(e.target.value)} /><span className="muted small">{selected.size}개 선택 / {filtered.length}개</span><button className="btn" onClick={() => job("dedup")} disabled={posts.length < 2}>중복 검사</button><button className="btn" onClick={() => job("prune")} disabled={!posts.length}>가지치기</button><button className="btn" onClick={() => job("indexing")} disabled={!posts.length}>색인 요청</button><button className="btn" onClick={downloadMarkdown} disabled={!selected.size}>Markdown Export</button><button className="btn danger" onClick={delSelected} disabled={!selected.size}>삭제</button></div><div className="table-wrap"><table><thead><tr><th><input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={() => setSelected(selected.size === filtered.length ? new Set() : new Set(filtered.map((p) => p.id)))} /></th><th>제목</th><th>디자인</th><th>자수</th><th>provider</th><th>$</th><th>생성일</th></tr></thead><tbody>{filtered.map((p) => <tr key={p.id}><td><input type="checkbox" checked={selected.has(p.id)} onChange={() => setSelected((prev) => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} /></td><td><Link href={`/t/${encodeURIComponent(tenant.domain)}/post/${p.id}`}><b>{p.title}</b></Link><p className="muted small mono">{p.slug}</p></td><td><span className="badge">{p.design_template_id ?? tenant.design_template_id}</span></td><td>{p.body_chars?.toLocaleString()}</td><td>{p.provider}</td><td>{p.cost_usd ? p.cost_usd.toFixed(3) : "-"}</td><td className="small muted">{formatDateTime(p.generated_at)}</td></tr>)}</tbody></table></div></div>;
 }
 
 function Settings({ tenant, options, onSave, onRefresh }: { tenant: Tenant; options: AdminOptions; onSave: (f: Record<string, unknown>) => Promise<void>; onRefresh: () => Promise<void> }) {
@@ -404,9 +512,29 @@ function PreviewBlock({ block }: { block: typeof DESIGN_BLUEPRINTS[string]["bloc
 function Stat({ label, value, accent }: { label: string; value: number; accent?: boolean }) { return <div className="card stat"><div className="muted small">{label}</div><div className="num" style={{ color: accent ? "var(--success)" : undefined }}>{value}</div></div>; }
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label><span className="label">{label}</span>{children}</label>; }
 function Status({ status }: { status: string }) { const cls = status === "published" || status === "done" ? "success" : status === "failed" ? "danger" : status === "running" || status === "in_progress" ? "info" : status === "planned" || status === "queued" ? "warn" : ""; return <span className={`badge ${cls}`}>{status}</span>; }
+function num(value: unknown): number { const n = Number(value); return Number.isFinite(n) ? n : 0; }
+function jobTotal(job: Job): number {
+  if (Array.isArray(job.payload_obj?.slot_ids)) return job.payload_obj.slot_ids.length;
+  return num(job.result_obj?.total_posts ?? job.result_obj?.total ?? job.payload_obj?.max) || 1;
+}
+function jobLabel(job: Job): string {
+  if (job.kind === "generate") return `${jobTotal(job)}개 글 작성`;
+  if (job.kind === "dedup") return "중복 검사";
+  if (job.kind === "prune") return "품질 가지치기";
+  if (job.kind === "indexing") return "Google 색인 요청";
+  return job.kind;
+}
 function parseLines(text: string) { return Array.from(new Set(text.split(/[\n,]/).map((v) => v.trim()).filter(Boolean))); }
 function parseCsv(text: string): AxisValue[] { return text.split(/\n/).map((line) => line.trim()).filter(Boolean).map((line) => { const [value, weight, sv, kd] = line.split(",").map((x) => x.trim()); return { value, weight: Number(weight || 3), monthly_search_volume: sv ? Number(sv) : null, competition_kd: kd ? Number(kd) : null }; }).filter((v) => v.value); }
 function parsePhotoCount(value: unknown): number {
+  if (!value) return 0;
+  if (Array.isArray(value)) return value.length;
+  try {
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed.length : 0;
+  } catch { return 0; }
+}
+function parseJsonCount(value: unknown): number {
   if (!value) return 0;
   if (Array.isArray(value)) return value.length;
   try {

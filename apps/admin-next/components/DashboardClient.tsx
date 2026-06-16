@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { api, getOptions, listTenants } from "@/lib/api";
+import { formatDateTime } from "@/lib/date";
 import type { AdminOptions, Job, Tenant } from "@/lib/types";
 
 export default function DashboardClient() {
@@ -114,7 +115,7 @@ export default function DashboardClient() {
         <div className="table-wrap">
           <table><thead><tr><th>도메인</th><th>종류</th><th>상태</th><th>예약</th><th>완료</th></tr></thead><tbody>
             {jobs.length === 0 && <tr><td colSpan={5} className="muted">작업 없음</td></tr>}
-            {jobs.map((j) => <tr key={j.id}><td className="mono small">{j.tenant}</td><td>{j.kind}</td><td><Status status={j.status} /></td><td className="small muted">{j.scheduled_at}</td><td className="small muted">{j.finished_at ?? "-"}</td></tr>)}
+            {jobs.map((j) => <tr key={j.id}><td className="mono small">{j.tenant}</td><td>{j.kind}</td><td><Status status={j.status} /></td><td className="small muted">{formatDateTime(j.scheduled_at)}</td><td className="small muted">{formatDateTime(j.finished_at)}</td></tr>)}
           </tbody></table>
         </div>
       </section>

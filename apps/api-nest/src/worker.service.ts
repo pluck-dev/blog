@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DbService, safeJson } from "./db.service.js";
 
@@ -8,6 +8,10 @@ type Row = Record<string, any>;
 
 type LlmResult = { ok: boolean; summary: string; provider: string; model: string; duration_sec: number; cost_usd?: number; input_tokens?: number; output_tokens?: number; session_id?: string; error?: string };
 type GenerationFacts = { text: string; images: Record<string, string> };
+type ArticlePattern = { pattern_type?: string; pattern?: string; count?: number; example_title?: string; article_type?: string };
+type ArticlePatternSummary = { average_structure_metrics?: Row; top_title_patterns?: ArticlePattern[]; top_heading_patterns?: ArticlePattern[] };
+
+const PROJECT_DIR = resolve(new URL("../../..", import.meta.url).pathname);
 
 @Injectable()
 export class WorkerService {
@@ -58,7 +62,7 @@ export class WorkerService {
         const facts = this.buildFacts(tenant, slot);
         const images = { ...this.imagesForSlot(tenant, slot), ...facts.images };
         const prompt = buildPrompt(tenantMeta, slot, facts.text, designTemplateId);
-        const llmOpts = { provider: payload.provider || "claude", model: payload.model || "", timeoutSec: Number(payload.timeout_sec || 600) };
+        const llmOpts = { provider: payload.provider || "codex", model: payload.model || "", timeoutSec: Number(payload.timeout_sec || 600) };
         const result = await runLlm(prompt, llmOpts);
         if (!result.ok || !result.summary.trim()) throw new Error(result.error || "empty summary");
         let markdown = normalizeGeneratedMarkdown(result.summary, images);
@@ -86,7 +90,7 @@ export class WorkerService {
         if (qualityIssues.length) throw new Error(`generated article quality gate failed: ${qualityIssues.join(", ")}`);
         const title = extractTitle(markdown, slot.primary_keyword);
         markdown = rewriteH1Title(markdown, title);
-        const finalIssues = postSurfaceQualityIssues({ title, body_markdown: markdown, images: Object.keys(images).length ? JSON.stringify(images) : null, design_template_id: designTemplateId }, 2600, candidateCountFromFacts(facts.text));
+        const finalIssues = postSurfaceQualityIssues({ title, body_markdown: markdown, images: Object.keys(images).length ? JSON.stringify(images) : null, design_template_id: designTemplateId }, 3500, candidateCountFromFacts(facts.text));
         if (finalIssues.length) throw new Error(`generated article final surface gate failed: ${finalIssues.join(", ")}`);
         const slug = this.db.uniqueSlug(tenant, slugify(title), sid);
         this.db.insertPost({
@@ -105,7 +109,7 @@ export class WorkerService {
       }
       if (index < slotIds.length - 1) await sleep(Number(payload.cooldown_sec || 60) * 1000);
     }
-    return { ok, fail, generation_gate_version: "surface-v2", per_slot };
+    return { ok, fail, generation_gate_version: "drivingteacher-surface-v8", per_slot };
   }
 
   private buildFacts(tenant: string, slot: Row): GenerationFacts {
@@ -114,39 +118,58 @@ export class WorkerService {
     const academies = this.pickAcademiesForRegion(tenant, region, 5);
     const images: Record<string, string> = {};
     const body = academies.map((a, i) => {
-      const imageKey = firstImageKey(a, i + 1);
-      if (imageKey.url) images[imageKey.key] = imageKey.url;
+      const imageKeys = firstImageKeys(a, i + 1, 2);
+      for (const imageKey of imageKeys) images[imageKey.key] = imageKey.url;
       const parts = [`[${i + 1}] ${a.name}`];
-      for (const [label, key] of [["주소", "address"], ["수강료", "price"], ["셔틀", "shuttle"], ["영업시간", "hours"], ["합격률", "pass_rate"], ["전화", "phone"], ["대표전화", "vphone"], ["후기", "review"], ["SEO 설명", "seo_description"], ["SEO 키워드", "seo_keywords"], ["유형", "academy_type"], ["지역 중심 기준 거리", "distance_km"]] as const) if (a[key]) parts.push(`${label}: ${key === "distance_km" ? `약 ${a[key]}km` : a[key]}`);
+      for (const [label, key] of [["주소", "address"], ["수강료", "price"], ["셔틀", "shuttle"], ["영업시간", "hours"], ["합격률", "pass_rate"], ["전화", "phone"], ["대표전화", "vphone"], ["SEO 설명", "seo_description"], ["SEO 키워드", "seo_keywords"], ["지역 중심 기준 거리", "distance_km"]] as const) if (a[key]) parts.push(`${label}: ${key === "distance_km" ? `약 ${a[key]}km` : a[key]}`);
+      parts.push(...reviewFactsForAcademy(a));
+      const academyType = humanAcademyType(a.academy_type);
+      if (academyType) parts.push(`운영 형태: ${academyType}`);
       if (a.latitude && a.longitude) parts.push(`좌표: ${a.latitude}, ${a.longitude}`);
-      if (imageKey.url) parts.push(`사진 슬롯: [IMAGE:${imageKey.key}]`);
+      if (imageKeys.length) parts.push(`사진 슬롯: ${imageKeys.map((imageKey) => `[IMAGE:${imageKey.key}]`).join(", ")}`);
       return parts.join(" / ");
     }).join("\n");
+    const related = this.relatedPostsForSlot(tenant, slot);
+    const relatedText = related.length
+      ? ["관련 글 후보(실제 내부 링크, 필요 시 2~4개만 자연스럽게 연결):", ...related.map((post) => `- ${post.title}: https://${tenant}/community/${post.slug}`)].join("\n")
+      : "";
     const header = [
       `작성 주제 지역: ${region}`,
-      `본문에 사용할 수 있는 후보: ${academies.length}곳`,
-      `본문에 사용할 수 있는 사진 슬롯: ${Object.keys(images).length ? Object.keys(images).map((key) => `[IMAGE:${key}]`).join(", ") : "없음"}`,
-      `후기 문구가 있는 후보: ${academies.filter((a) => a.review).length}곳`,
-      `작성자 주의: 아래 필드 밖의 학원명·가격·합격률·셔틀·후기는 생성 금지`,
-      `작성자 주의: 이 데이터는 내부 입력값이므로 본문 출처·참고자료로 노출 금지`,
+      `소개 가능한 후보 수: ${academies.length}곳`,
+      `사용 가능한 사진: ${Object.keys(images).length ? Object.keys(images).map((key) => `[IMAGE:${key}]`).join(", ") : "없음"}`,
+      `후기 문구 보유 후보: ${academies.filter((a) => a.review).length}곳`,
+      `작성 범위: 아래 항목에 없는 학원명·가격·합격률·셔틀·후기는 만들지 않는다`,
+      `노출 방식: 이 입력 묶음 자체를 출처나 참고자료로 쓰지 않는다`,
     ].join("\n");
-    return { text: [header, body].filter(Boolean).join("\n\n"), images };
+    return { text: [header, body, relatedText].filter(Boolean).join("\n\n"), images };
   }
 
   private imagesForSlot(tenant: string, slot: Row): Record<string, string> {
     if (!slot.region) return {};
     const images: Record<string, string> = {};
     for (const [i, academy] of this.pickAcademiesForRegion(tenant, String(slot.region), 5).entries()) {
-      const imageKey = firstImageKey(academy, i + 1);
-      if (imageKey.url) images[imageKey.key] = imageKey.url;
+      for (const imageKey of firstImageKeys(academy, i + 1, 2)) images[imageKey.key] = imageKey.url;
     }
     return images;
   }
 
+  private relatedPostsForSlot(tenant: string, slot: Row): Row[] {
+    const region = String(slot.region || "").trim();
+    const keyword = String(slot.primary_keyword || "").replace(region, "").trim();
+    const terms = [region, keyword].filter((term) => term.length >= 2).slice(0, 2);
+    if (!terms.length) return this.db.all("SELECT title, slug FROM posts WHERE tenant=? AND status='published' ORDER BY generated_at DESC LIMIT 5", [tenant]);
+    const rows = this.db.all("SELECT title, slug FROM posts WHERE tenant=? AND status='published' ORDER BY generated_at DESC LIMIT 80", [tenant]);
+    return rows
+      .map((post) => ({ ...post, score: terms.reduce((sum, term) => sum + (String(post.title || "").includes(term) ? 2 : 0) + (String(post.slug || "").includes(term.replace(/\s+/g, "-")) ? 1 : 0), 0) }))
+      .sort((a, b) => b.score - a.score)
+      .filter((post) => post.score > 0)
+      .slice(0, 5);
+  }
+
   private pickAcademiesForRegion(tenant: string, region: string, limit: number): Row[] {
-    const exact = this.db.listAcademies(tenant, { region, limit });
+    const exact = this.db.listAcademies(tenant, { region, limit: Math.max(limit * 3, 20) }).filter(isUsableAcademy);
     if (exact.length) return exact.slice(0, limit);
-    const all = this.db.listAcademies(tenant, { limit: 5000 });
+    const all = this.db.listAcademies(tenant, { limit: 5000 }).filter(isUsableAcademy);
     const targetRegion = this.db.getSeoRegion(tenant, region);
     const targetLat = finiteNumber(targetRegion?.latitude);
     const targetLng = finiteNumber(targetRegion?.longitude);
@@ -251,7 +274,7 @@ function spawnText(cmd: string, args: string[], input: string, timeoutSec: numbe
   return new Promise((resolvePromise) => {
     const env: NodeJS.ProcessEnv = { ...process.env };
     for (const [k, v] of Object.entries(envPatch)) { if (v === undefined) delete env[k]; else env[k] = v; }
-    const child = spawn(cmd, args, { env, cwd: process.cwd(), stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(cmd, args, { env, cwd: PROJECT_DIR, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "", stderr = "";
     const timer = setTimeout(() => child.kill("SIGTERM"), timeoutSec * 1000);
     child.stdout.on("data", (b) => { stdout += b.toString(); });
@@ -292,9 +315,97 @@ function parseCodex(stdout: string) {
 }
 
 function firstImageKey(row: Row, index: number): { key: string; url: string } {
+  return firstImageKeys(row, index, 1)[0] || { key: `academy_${index}`, url: "" };
+}
+
+function firstImageKeys(row: Row, index: number, max = 2): Array<{ key: string; url: string }> {
   const photos = safeJson(row.photos, []);
-  const url = Array.isArray(photos) ? String(photos[0] || "").trim() : "";
-  return { key: `academy_${index}`, url: url || String(row.thumb_url || "").trim() };
+  const urls = Array.isArray(photos) ? photos.map((v) => String(v || "").trim()).filter(Boolean) : [];
+  const thumb = String(row.thumb_url || "").trim();
+  if (thumb) urls.unshift(thumb);
+  return Array.from(new Set(urls)).slice(0, max).map((url, photoIndex) => ({ key: photoIndex === 0 ? `academy_${index}` : `academy_${index}_${photoIndex + 1}`, url }));
+}
+
+function isUsableAcademy(row: Row): boolean {
+  const name = String(row.name || "").trim();
+  if (!name || /^(?:test|테스트|sample|dummy|asdf|qwer|123|없음|null|undefined)/i.test(name)) return false;
+  if (/(?:테스트|샘플|더미|dummy|sample|placeholder)/i.test(name)) return false;
+  const usableFields = ["address", "price", "shuttle", "hours", "pass_rate", "phone", "vphone", "review", "seo_description", "seo_keywords", "thumb_url", "photos"];
+  return usableFields.some((key) => String(row[key] || "").trim().length >= 8);
+}
+
+function reviewFactsForAcademy(row: Row): string[] {
+  const facts: string[] = [];
+  const reviews = safeJson(row.review_json, []);
+  const legacyReview = String(row.review || "").trim();
+  if (Array.isArray(reviews) && reviews.length) {
+    const summary = reviewEvidenceSummary(reviews.map((review) => review?.content), reviews.map((review) => review?.point));
+    if (summary) facts.push(`긍정 수강생 리뷰 보충자료: ${summary}`);
+  } else if (legacyReview) {
+    const summary = reviewEvidenceSummary(legacyReview.split(/\n+/), []);
+    if (summary) facts.push(`긍정 수강생 리뷰 보충자료: ${summary}`);
+  }
+  const blogReviews = safeJson(row.blog_reviews, []);
+  if (Array.isArray(blogReviews) && blogReviews.length) {
+    const themes = reviewThemesFromTexts(blogReviews.flatMap((review) => [review?.title, review?.content]));
+    const links = blogReviews
+      .map((review) => {
+        const title = cleanFactText(review?.title).slice(0, 120);
+        const link = String(review?.link || "").trim();
+        if (!title || !link) return "";
+        return `"${title}" ${link}`;
+      })
+      .filter(Boolean)
+      .slice(0, 2);
+    if (themes.length || links.length) facts.push(`긍정 블로그 리뷰글 보충자료: ${themes.length ? `후기 흐름 ${themes.join(", ")}` : "후기 흐름 확인"}${links.length ? ` / 참고 글 ${links.join(" | ")}` : ""}`);
+  }
+  return facts;
+}
+
+function reviewEvidenceSummary(values: unknown[], points: unknown[]): string {
+  const texts = values.map(cleanFactText).filter(Boolean);
+  const themes = reviewThemesFromTexts(texts);
+  const pointCount = points.filter((value) => Number(value) >= 4).length;
+  const parts: string[] = [];
+  if (themes.length) parts.push(`후기 요약 ${themes.join(", ")}`);
+  if (pointCount) parts.push(`4점 이상 리뷰 ${pointCount}개`);
+  return parts.join(" / ");
+}
+
+function reviewThemesFromTexts(values: unknown[]): string[] {
+  const text = values.map(cleanFactText).join(" ");
+  const themes: Array<[string, RegExp]> = [
+    ["친절한 상담·응대", /친절|상담|카운터|직원/u],
+    ["강사의 꼼꼼한 설명", /강사|선생|쌤|설명|잘\s*알려|꼼꼼|세심/u],
+    ["초보자도 긴장 덜한 분위기", /초보|겁|긴장|안심|분위기|편하/u],
+    ["셔틀·방문 동선 만족", /셔틀|동선|가까|위치|방문|편했/u],
+    ["시설·차량 관리 만족", /시설|차량|깨끗|청결|쾌적/u],
+    ["주변 추천 의향", /추천|강추|지인/u],
+  ];
+  return themes.filter(([, pattern]) => pattern.test(text)).map(([label]) => label).slice(0, 4);
+}
+
+function cleanFactText(value: unknown): string {
+  return String(value ?? "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/#[0-9A-Za-z_가-힣]+/g, " ")
+    .replace(/&gt;/g, ">")
+    .replace(/&lt;/g, "<")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function humanAcademyType(value: unknown): string {
+  const raw = String(value || "").trim();
+  const map: Record<string, string> = {
+    academy: "운전학원",
+    exam_academy: "자동차운전전문학원",
+    test_center: "운전면허시험장",
+  };
+  return map[raw] || raw.replace(/_/g, " ").trim();
 }
 
 function academyDistanceKm(row: Row, targetLat: number | null, targetLng: number | null): number | null {
@@ -340,18 +451,55 @@ function clampInt(value: unknown, fallback: number, min: number, max: number): n
 
 function normalizeGeneratedMarkdown(summary: string, images: Record<string, string>): string {
   return ensureImageSlots(
-    stripMarkdownEmphasis(
-      stripPseudoSlots(
-        stripPreamble(summary)
-          .replace(/^```(?:markdown|md)?\s*/i, "")
-          .replace(/```\s*$/i, "")
-          .replace(/\[(\d+)\]/g, "")
-          .replace(/\n{3,}/g, "\n\n")
-          .trim()
+    ensureHeadingBodies(
+      removeInternalLeakage(
+        normalizeKoreanSpacing(
+          stripPseudoSlots(
+            stripPreamble(summary)
+              .replace(/^```(?:markdown|md)?\s*/i, "")
+              .replace(/```\s*$/i, "")
+              .replace(/\[(\d+)\]/g, "")
+              .replace(/\n{3,}/g, "\n\n")
+              .trim()
+          )
+        )
       )
     ),
     images
   );
+}
+
+function ensureHeadingBodies(md: string): string {
+  const lines = md.split(/\r?\n/);
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] || "";
+    out.push(line);
+    if (!/^#{2,3}\s+/.test(line.trim())) continue;
+    const next = lines.slice(i + 1).find((candidate) => candidate.trim());
+    if (next && /^#{2,3}\s+/.test(next.trim())) {
+      out.push("아래에서는 확인된 후보 정보와 상담 전 체크포인트를 기준으로, 실제로 비교할 때 도움이 되는 내용만 간단히 정리합니다.");
+      out.push("");
+    }
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function removeInternalLeakage(md: string): string {
+  const lines = md.split(/\r?\n/);
+  const out: string[] = [];
+  let droppingReferenceSection = false;
+  for (const line of lines) {
+    if (/^#{2,4}\s+.*(?:참고자료|출처|레퍼런스|References)/i.test(line)) {
+      droppingReferenceSection = true;
+      continue;
+    }
+    if (droppingReferenceSection && /^#{1,4}\s+/.test(line)) droppingReferenceSection = false;
+    if (droppingReferenceSection) continue;
+    if (/(api-dev\.drivingplus\.me|get-all-academy|zipcode\/search-seo|내부\s*(?:API|데이터|자료)|검증된 자료|확인된 콘텐츠 재료|작성 범위|소개 가능한 후보 수|본문에 사용할 수 있는 후보|본문에 사용할 수 있는 사진 슬롯|작성자 주의|API 자료|제공된 자료|후기 필드|긍정 수강생 리뷰 보충자료|긍정 블로그 리뷰글 보충자료|직접 매칭 후보 수|사용 가능한 이미지 슬롯|내부자료ID|DrivingPlus|firebasestorage\.googleapis\.com|storage\.googleapis\.com)/i.test(line)) continue;
+    out.push(line);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function stripMarkdownEmphasis(md: string): string {
@@ -376,21 +524,30 @@ function articleQualityIssues(markdown: string, facts: string, images: Record<st
   const issues: string[] = [];
   const chars = markdown.trim().length;
   const candidateCount = candidateCountFromFacts(facts);
+  const candidateNames = candidateNamesFromFacts(facts);
   const h2Count = (markdown.match(/^##\s+/gm) || []).length;
   const imageKeys = Object.keys(images);
   const usedImageKeys = Array.from(markdown.matchAll(/\[IMAGE:([A-Za-z0-9_-]+)\]/g)).map((m) => m[1]!);
   if (!markdown.trim().startsWith("# ")) issues.push("missing_h1_title");
-  if (chars < 2600) issues.push(`too_short_${chars}`);
-  if (chars > 5000) issues.push(`too_long_${chars}`);
-  if (h2Count < 6) issues.push(`not_enough_h2_${h2Count}`);
+  if (chars < 3500) issues.push(`too_short_${chars}`);
+  if (chars > 5600) issues.push(`too_long_${chars}`);
+  if (h2Count < 4) issues.push(`not_enough_h2_${h2Count}`);
+  if (h2Count > 10) issues.push(`too_many_h2_${h2Count}`);
+  issues.push(...readabilityIssues(markdown));
   if (!isAnyMarkdownTable(markdown)) issues.push(candidateCount >= 2 ? "missing_comparison_table" : "missing_summary_table");
   if (!/(^|\n)\s*(?:[-*]\s+|\d+[.)]\s+|✅)/m.test(markdown)) issues.push("missing_checklist_or_list");
-  if (!/(FAQ|자주 묻는 질문|질문과 답변)/i.test(markdown)) issues.push("missing_faq_section");
-  if (/\[(?:TABLE|CTA|FAQ|QUOTE|IMAGE)_SLOT:/i.test(markdown)) issues.push("contains_pseudo_slot");
-  if (/\*\*[^*]+\*\*/.test(markdown)) issues.push("contains_raw_bold_markers");
+  if (/\[(?:TABLE|CTA|FAQ|QUOTE|IMAGE|INTERNAL_LINK)_SLOT:|\[INTERNAL_LINK:/i.test(markdown)) issues.push("contains_pseudo_slot");
   if (/\[\d+\]/.test(markdown)) issues.push("contains_visible_citations");
   if (thinSectionCount(markdown) > 1) issues.push("thin_sections");
-  if (/(검증된 자료|API 자료|제공된 자료|후기 필드|직접 매칭 후보 수|사용 가능한 이미지 슬롯|본문에 사용할 수 있는 후보|본문에 사용할 수 있는 사진 슬롯|작성자 주의|참고자료|내부자료ID|내부 데이터|내부 API|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy|firebasestorage\.googleapis\.com|storage\.googleapis\.com)/i.test(markdown)) issues.push("exposes_internal_fact_language");
+  if (/(검증된 자료|확인된 콘텐츠 재료|작성 범위|소개 가능한 후보 수|API 자료|제공된 자료|후기 필드|긍정 수강생 리뷰 보충자료|긍정 블로그 리뷰글 보충자료|직접 매칭 후보 수|사용 가능한 이미지 슬롯|본문에 사용할 수 있는 후보|본문에 사용할 수 있는 사진 슬롯|작성자 주의|내부자료ID|내부 데이터|내부 API|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy|firebasestorage\.googleapis\.com|storage\.googleapis\.com)/i.test(markdown)) issues.push("exposes_internal_fact_language");
+  if (hasRiskyDurationClaim(markdown)) issues.push("risky_duration_or_pass_guarantee_claim");
+  if (!hasVerifiedPriceFacts(facts) && hasSpecificMoneyClaim(markdown)) issues.push("unverified_specific_price_claim");
+  if (!hasReviewFacts(facts) && hasSpecificReviewClaim(markdown)) issues.push("unverified_review_claim");
+  const inflated = inflatedCandidateCountClaim(markdown, candidateCount);
+  if (inflated) issues.push(`inflated_candidate_count_${inflated.claimed}_gt_${inflated.actual}`);
+  if (candidateNames.length && !candidateNames.some((name) => markdown.includes(name))) issues.push("missing_real_candidate_name");
+  if (candidateNames.length >= 2 && !candidateNames.slice(0, 4).some((name) => markdownTableText(markdown).includes(name))) issues.push("table_missing_real_candidate_name");
+  if (/긍정 수강생 리뷰 보충자료|긍정 블로그 리뷰글 보충자료/.test(facts) && !/(후기|리뷰|수강생|블로그)/.test(markdown)) issues.push("review_facts_unused");
   if (imageKeys.length && usedImageKeys.length === 0) issues.push("missing_available_image_slot");
   const unknown = usedImageKeys.filter((key) => !imageKeys.includes(key));
   if (unknown.length) issues.push(`unknown_image_slots_${Array.from(new Set(unknown)).join("_")}`);
@@ -408,16 +565,19 @@ function postSurfaceQualityIssues(post: Row, minChars = 2600, candidateCount = 0
   const usedImageKeys = Array.from(markdown.matchAll(/\[IMAGE:([A-Za-z0-9_-]+)\]/g)).map((m) => m[1]!);
   if (!markdown.trim().startsWith("# ")) issues.push("missing_h1_title");
   if (chars < minChars) issues.push(`too_short_${chars}`);
-  if (chars > 5000) issues.push(`too_long_${chars}`);
-  if (h2Count < 6) issues.push(`not_enough_h2_${h2Count}`);
+  if (chars > 5600) issues.push(`too_long_${chars}`);
+  if (h2Count < 4) issues.push(`not_enough_h2_${h2Count}`);
+  if (h2Count > 10) issues.push(`too_many_h2_${h2Count}`);
+  issues.push(...readabilityIssues(markdown));
   if (!isAnyMarkdownTable(markdown)) issues.push(candidateCount >= 2 ? "missing_comparison_table" : "missing_summary_table");
   if (thinSectionCount(markdown) > 1) issues.push("thin_sections");
   if (!/(^|\n)\s*(?:[-*]\s+|\d+[.)]\s+|✅|✓)/m.test(markdown)) issues.push("missing_checklist_or_list");
-  if (!/(FAQ|자주 묻는 질문|질문과 답변)/i.test(markdown)) issues.push("missing_faq_section");
-  if (/\[(?:TABLE|CTA|FAQ|QUOTE|IMAGE)_SLOT:/i.test(markdown)) issues.push("contains_pseudo_slot");
-  if (/\*\*[^*]+\*\*/.test(markdown)) issues.push("contains_raw_bold_markers");
+  if (/\[(?:TABLE|CTA|FAQ|QUOTE|IMAGE|INTERNAL_LINK)_SLOT:|\[INTERNAL_LINK:/i.test(markdown)) issues.push("contains_pseudo_slot");
   if (/\[\d+\]/.test(markdown)) issues.push("contains_visible_citations");
-  if (/(운전선생|검증된 자료|API 자료|제공된 자료|후기 필드|직접 매칭 후보 수|사용 가능한 이미지 슬롯|본문에 사용할 수 있는 후보|본문에 사용할 수 있는 사진 슬롯|작성자 주의|참고자료|내부자료ID|내부 데이터|내부 API|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy|zipcode\/search-seo|firebasestorage\.googleapis\.com|storage\.googleapis\.com)/i.test(`${title}\n${markdown}`)) issues.push("exposes_internal_fact_language");
+  if (/(운전선생|검증된 자료|확인된 콘텐츠 재료|작성 범위|소개 가능한 후보 수|API 자료|제공된 자료|후기 필드|긍정 수강생 리뷰 보충자료|긍정 블로그 리뷰글 보충자료|직접 매칭 후보 수|사용 가능한 이미지 슬롯|본문에 사용할 수 있는 후보|본문에 사용할 수 있는 사진 슬롯|작성자 주의|내부자료ID|내부 데이터|내부 API|DrivingPlus|api-dev\.drivingplus\.me|get-all-academy|zipcode\/search-seo|firebasestorage\.googleapis\.com|storage\.googleapis\.com)/i.test(`${title}\n${markdown}`)) issues.push("exposes_internal_fact_language");
+  if (hasRiskyDurationClaim(`${title}\n${markdown}`)) issues.push("risky_duration_or_pass_guarantee_claim");
+  const inflated = inflatedCandidateCountClaim(`${title}\n${markdown}`, candidateCount);
+  if (inflated) issues.push(`inflated_candidate_count_${inflated.claimed}_gt_${inflated.actual}`);
   if (/[가-힣]+(?:시|군|구|읍|면|동)운전면허학원/.test(title)) issues.push("keyword_spacing_issue");
   if (imageKeys.length && usedImageKeys.length === 0) issues.push("missing_available_image_slot");
   const unknown = usedImageKeys.filter((key) => !imageKeys.includes(key));
@@ -425,10 +585,119 @@ function postSurfaceQualityIssues(post: Row, minChars = 2600, candidateCount = 0
   return issues;
 }
 
+function readabilityIssues(markdown: string): string[] {
+  const issues: string[] = [];
+  const paragraphs = readableParagraphs(markdown);
+  const longParagraphs = paragraphs.filter((paragraph) => paragraph.length > 420);
+  if (longParagraphs.length) issues.push(`overlong_paragraph_${Math.max(...longParagraphs.map((p) => p.length))}`);
+  if (adjacentHeadingCount(markdown) > 0) issues.push('adjacent_headings_without_body');
+  if (orphanHeadingCount(markdown) > 1) issues.push('too_many_thin_or_empty_heading_sections');
+  return issues;
+}
+
+function readableParagraphs(markdown: string): string[] {
+  return String(markdown || '')
+    .split(/\n{2,}/)
+    .map((part) => part.trim())
+    .filter((part) => part && !/^(?:#{1,6}\s+|\|.+\||[-*]\s+|\d+[.)]\s+|>|\[IMAGE:)/m.test(part));
+}
+
+function adjacentHeadingCount(markdown: string): number {
+  const lines = String(markdown || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  let count = 0;
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (/^#{2,3}\s+/.test(lines[i] || '') && /^#{2,3}\s+/.test(lines[i + 1] || '')) count++;
+  }
+  return count;
+}
+
+function orphanHeadingCount(markdown: string): number {
+  const sections = String(markdown || '').split(/^##\s+/gm).slice(1);
+  let count = 0;
+  for (const section of sections) {
+    const lines = section.split(/\r?\n/);
+    lines.shift();
+    const text = lines.join('\n')
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/\[IMAGE:[A-Za-z0-9_-]+\]/g, '')
+      .replace(/^\|.+\|$/gm, '')
+      .replace(/(^|\n)\s*(?:[-*]\s+|\d+[.)]\s+|✅|✓).*$/gm, '')
+      .replace(/^#{3,6}\s+.+$/gm, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (text.length > 0 && text.length < 80) count++;
+  }
+  return count;
+}
+
+const RISKY_DURATION_OR_GUARANTEE_RE = /\d+\s*일\s*(?:만|컷|완성)|삼\s*일\s*(?:만|컷|완성)|하루\s*만|당일\s*합\s*격|무조건\s*합\s*격|합\s*격\s*보장|보장\s*합\s*격/u;
+const SPECIFIC_MONEY_RE = /\d{2,3}\s*만\s*(?:원|뤈|웜)?|\d{3},\d{3}\s*원/u;
+const SPECIFIC_REVIEW_CLAIM_RE = /실제\s*수강생|수강생들은|수강생이|후기에서는|후기에서|리뷰에서는|리뷰에서|블로그\s*후기/u;
+
+function hasRiskyDurationClaim(value: string): boolean {
+  return RISKY_DURATION_OR_GUARANTEE_RE.test(value);
+}
+
+function hasSpecificMoneyClaim(value: string): boolean {
+  return SPECIFIC_MONEY_RE.test(value);
+}
+
+function hasVerifiedPriceFacts(facts: string): boolean {
+  return /(?:수강료|가격|비용):\s*[^/\n]+/u.test(facts);
+}
+
+function hasReviewFacts(facts: string): boolean {
+  return /긍정 수강생 리뷰 보충자료|긍정 블로그 리뷰글 보충자료/u.test(facts);
+}
+
+function hasSpecificReviewClaim(value: string): boolean {
+  return SPECIFIC_REVIEW_CLAIM_RE.test(value);
+}
+
+function inflatedCandidateCountClaim(markdown: string, actual: number): { claimed: number; actual: number } | null {
+  if (!actual || actual < 1) return null;
+  const headings = Array.from(markdown.matchAll(/^#{1,3}\s+(.+)$/gm)).map((m) => m[1] || "");
+  const titleLine = markdown.split(/\r?\n/, 1)[0] || "";
+  const targets = Array.from(new Set([titleLine.replace(/^#\s+/, ""), ...headings]));
+  let maxClaim = 0;
+  for (const target of targets) {
+    for (const count of candidateCountClaims(target)) maxClaim = Math.max(maxClaim, count);
+  }
+  return maxClaim > actual ? { claimed: maxClaim, actual } : null;
+}
+
+function candidateCountClaims(value: string): number[] {
+  const text = String(value || "");
+  const claims: number[] = [];
+  const patterns = [
+    /(?:BEST|TOP)\s*(\d{1,2})/giu,
+    /(?:추천|비교|후보|학원)\s*(\d{1,2})\s*(?:곳|개)/gu,
+    /(\d{1,2})\s*(?:곳|개)\s*(?:추천|비교|후보|학원)/gu,
+    /운전면허학원\s*(\d{1,2})\s*(?:곳|개)/gu,
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const n = Number(match[1]);
+      if (Number.isFinite(n)) claims.push(n);
+    }
+  }
+  return claims;
+}
+
 function candidateCountFromFacts(facts: string): number {
-  const direct = facts.match(/(?:직접 매칭 후보 수|본문에 사용할 수 있는 후보):\s*(\d+)/);
+    const direct = facts.match(/(?:직접 매칭 후보 수|본문에 사용할 수 있는 후보|소개 가능한 후보 수):\s*(\d+)/);
   if (direct) return Number(direct[1]);
   return (facts.match(/^\[\d+\]/gm) || []).length;
+}
+
+function candidateNamesFromFacts(facts: string): string[] {
+  return Array.from(facts.matchAll(/^\[\d+\]\s+([^\n/]+?)(?:\s*\/|\s*$)/gm))
+    .map((m) => String(m[1] || "").trim())
+    .filter((name) => name.length >= 2 && !/^(?:test|테스트|sample|dummy)/i.test(name));
+}
+
+function markdownTableText(markdown: string): string {
+  return markdown.split(/\r?\n/).filter((line) => line.includes("|")).join("\n");
 }
 
 function thinSectionCount(markdown: string): number {
@@ -456,13 +725,17 @@ function isAnyMarkdownTable(markdown: string): boolean {
 
 function buildRepairPrompt(tenant: Row, slot: Row, facts: string, designTemplateId: string, markdown: string, issues: string[]): string {
   const brand = publicBrandName(tenant);
-  return `아래 Markdown 글은 품질 게이트를 통과하지 못했다. 검증된 자료만 사용해서 같은 주제의 완성형 글로 다시 작성하라.
+  return `아래 Markdown 글은 품질 게이트를 통과하지 못했다. 확인된 콘텐츠 재료만 사용해서 같은 주제의 완성형 글로 다시 작성하라.
 
 테넌트: ${brand}
 디자인 템플릿: ${designTemplateId}
 디자인 작성 지침: ${designWritingGuide(designTemplateId)}
 템플릿 필수 구조:
 ${designStructureGuide(designTemplateId)}
+원본 엑셀 기반 템플릿 작성법:
+${originalTemplateGuide(slot.template_id)}
+원본 전체 글 패턴 기반 작성법:
+${originalArticlePatternGuide(slot)}
 주 키워드: ${slot.primary_keyword}
 지역: ${slot.region || ""}
 페르소나: ${slot.persona || ""}
@@ -472,20 +745,30 @@ ${designStructureGuide(designTemplateId)}
 실패 사유:
 ${issues.map((issue) => `- ${issue}`).join("\n")}
 
-검증된 자료:
+확인된 콘텐츠 재료:
 ${facts || "없음"}
 
 재작성 규칙:
-- 제목/지역/후보 학원/이미지는 검증된 자료와 반드시 일치시킨다.
-- 후보 수보다 큰 숫자, 다른 지역 후보, 없는 가격·합격률·셔틀·후기·3일 합격 주장을 만들지 않는다.
+- 제목/지역/후보 학원/이미지는 확인된 콘텐츠 재료와 반드시 일치시킨다.
+- 소개 가능한 후보가 1곳 이상이면 본문과 표에 실제 후보명 최소 1개를 반드시 넣는다. 후보명이 빠진 일반 가이드 글은 실패다.
+- 후보별 설명은 원본 블로그처럼 작은 카드형으로 쓴다: **후보명** → 위치/생활권 → 추천 대상 → 상담 때 확인할 질문 → 사진 순서.
+- 긍정 수강생 리뷰/블로그 리뷰글 보충자료가 있으면 리뷰 원문을 길게 인용하지 말고 후보 설명을 보강하는 용도로만 1~2문장 짧게 요약한다.
+- 좋은 리뷰라도 합격 보장·과장된 효능은 만들지 말고, “실제 수강후기에서는 친절/동선/설명 방식이 언급된다”처럼 보충 근거로만 쓴다.
+- 후보 수보다 큰 숫자, 다른 지역 후보, 없는 가격·합격률·셔틀·후기·3일 합격·당일 합격·합격 보장 주장을 만들지 않는다.
+- 구체 금액은 수강료 자료가 있을 때만 쓴다. 자료가 없으면 “비용은 상담 때 확인”과 확인 질문으로 처리한다.
 - 주소가 주제 지역과 다르지만 "지역 중심 기준 거리"가 있는 후보는 해당 지역 안의 학원이 아니라 "인근 후보"로만 구분해 설명한다.
-- 첫 줄은 '# ' 제목, H2 6개 이상, 3,000~5,000자 이내.
+- 첫 줄은 '# ' 제목, H2 4~6개 중심, 많아도 10개를 넘기지 말고 3,500~5,600자 이내로 쓴다.
 - 후보 수와 관계없이 Markdown 표 1개를 반드시 포함한다. 후보가 1곳이면 비교표 대신 주소/연락처/과정/상담 확인점을 담은 요약표로 작성한다.
-- 체크리스트와 FAQ 3~5개를 포함한다.
-- 사용 가능한 이미지 슬롯이 있으면 실제 키만 [IMAGE:academy_1] 형식으로 본문 흐름에 배치한다.
-- [1], [2] 같은 출처번호와 내부 표현(검증된 자료, API 자료, 후보 수, 참고자료, 내부 API URL 등)은 노출하지 않는다.
+- 체크리스트는 포함하되 FAQ는 주제가 실제 질문형일 때만 2~4개로 짧게 둔다. 원본처럼 FAQ가 억지로 붙은 느낌이면 만들지 않는다.
+- 사용 가능한 이미지 슬롯이 있으면 실제 키만 [IMAGE:academy_1] 형식으로 본문 흐름에 3~4개까지 배치한다.
+- 학원명·가격·셔틀·면허종류·준비물처럼 독자가 스캔해야 하는 핵심어는 Markdown bold를 적당히 사용한다.
+- 관련 글 후보가 있으면 실제 링크만 2~4개 연결한다. 후보가 없으면 링크를 꾸며내지 않는다.
+- [1], [2] 같은 출처번호와 입력 묶음 표현(확인된 콘텐츠 재료, 작성 범위, 소개 가능한 후보 수, API 자료, 후보 수, 참고자료, 내부 API URL 등)은 노출하지 않는다.
 - 출처/참고자료는 도로교통공단처럼 실제 외부 공신력 자료를 별도로 인용했을 때만 작성한다. 이번 입력의 학원 API는 출처가 아니라 내부 데이터다.
-- 원문보다 더 자연스럽고 풍성한 ${brand} 블로그 톤으로 작성한다.
+- 원문보다 더 자연스럽고 풍성한 ${brand} 블로그 톤으로 작성하되, 원본 레퍼런스처럼 구체적인 지역 생활권·비용 확인점·사진·내부링크·CTA가 보이게 만든다.
+- 문단은 눈으로 훑기 좋게 짧고 리듬 있게 쓴다. 한 문단은 2~3문장, 가능하면 300자 안팎으로 끊고 420자를 넘기지 않는다.
+- H2/H3 제목만 연속으로 붙이지 말고, 제목 아래에는 최소 한 문단·표·리스트·이미지 중 하나를 둔다.
+- 긴 설명만 이어가지 말고 표, ✅ 체크리스트, 후보별 소제목, 후기 요약/주의문을 섞는다.
 - 출력은 수정된 Markdown 본문만 제공한다.
 
 기존 Markdown:
@@ -502,7 +785,11 @@ function buildPrompt(tenant: Row, slot: Row, facts: string, designTemplateId: st
 디자인 작성 지침: ${designWritingGuide(designTemplateId)}
 템플릿 필수 구조:
 ${designStructureGuide(designTemplateId)}
+원본 엑셀 기반 템플릿 작성법:
+${originalTemplateGuide(slot.template_id)}
 템플릿: ${slot.template_id}
+원본 전체 글 패턴 기반 작성법:
+${originalArticlePatternGuide(slot)}
 주 키워드: ${slot.primary_keyword}
 지역: ${slot.region || ""}
 페르소나: ${slot.persona || ""}
@@ -510,43 +797,51 @@ ${designStructureGuide(designTemplateId)}
 수식어: ${[slot.modifier_1, slot.modifier_2].filter(Boolean).join(", ")}
 브랜드/작성 메모: ${tenant.content_brief || "없음"}
 
-검증된 자료:
+확인된 콘텐츠 재료:
 ${facts || "없음"}
 
 절대 원칙:
 - API 자료는 글 재료일 뿐이다. 주 키워드/지역/제목과 직접 맞는 학원만 본문 후보·표·사진·CTA에 사용한다.
+- 소개 가능한 후보가 1곳 이상이면 실제 후보명을 본문과 표에 반드시 최소 1개 이상 포함한다. 후보명이 빠진 글은 일반론이라 실패다.
 - 주소가 주제 지역과 일치하는 후보를 먼저 소개한다. 주소가 다르지만 "지역 중심 기준 거리"가 있는 후보는 해당 지역 안의 학원이 아니라 "인근/주변 후보"로 분리해 설명한다.
 - 다른 시·군·구 후보를 주제 지역 내부 학원처럼 쓰지 말 것. 후보가 부족하면 부족한 그대로 설명한다.
-- 검증된 자료에 없는 학원명·사진·주소·전화번호·가격·셔틀·합격률·3일 합격·지역화폐·후기는 절대 생성하지 말 것.
+- 확인된 콘텐츠 재료에 없는 학원명·사진·주소·전화번호·가격·셔틀·합격률·3일 합격·당일 합격·합격 보장·지역화폐·후기는 절대 생성하지 말 것.
 - 제공된 후보 수보다 큰 숫자를 제목/본문에 쓰지 말 것. 예: 후보가 2곳이면 '3곳', 'BEST5' 금지.
 - 출처번호 [1], [2]를 본문에 노출하지 말 것. 근거는 문장 안에 자연스럽게 녹인다.
 - 내부 API URL이나 get-all-academy 주소는 내부 데이터 경로이므로 참고자료/출처 섹션에 절대 쓰지 말 것.
 - 출처/참고자료 섹션은 도로교통공단 등 외부 공신력 자료를 실제로 인용했을 때만 만든다. 그렇지 않으면 출처 섹션 자체를 만들지 않는다.
-- Markdown 굵게 표시(**학원명**, **Q1** 등)는 원문 품질을 떨어뜨리므로 쓰지 않는다. 강조가 필요하면 일반 문장으로 자연스럽게 작성한다.
+- Markdown 굵게 표시는 원본 블로그처럼 핵심 학원명·비용·셔틀·준비물·주의점에만 적당히 사용한다. 문장 전체를 굵게 만들지는 않는다.
 
-레퍼런스 품질 기준:
-- 딱딱한 데이터 나열이 아니라 ${brand} 블로그처럼 자연스럽게 시작한다. 예: "바쁜 일정 때문에 면허 준비를 미루고 있다면..."처럼 독자 상황을 먼저 짚는다.
-- 각 H2 섹션은 제목만 던지지 말고 2~4문장 이상의 이어지는 단락으로 구성한다. FAQ/체크리스트를 제외한 섹션은 최소 140자 이상의 설명을 넣어 한 문장짜리 카드가 여러 개 끊기는 느낌을 피한다.
-- 후보 설명은 단순 주소 나열이 아니라 "어떤 생활권/상황의 사람에게 맞는지", "상담 때 무엇을 확인해야 하는지"까지 연결한다.
-- 표, 체크리스트, FAQ, 이미지가 글 흐름 안에 자연스럽게 들어가야 한다. 표 앞뒤에는 표를 왜 봐야 하는지 해석 문장을 붙인다.
-- 자료에 리뷰가 있으면 짧은 인용문 1개를 쓸 수 있다. 리뷰가 없으면 실제 후기처럼 꾸며 쓰지 말고 상담 확인 팁으로 대체한다.
+원본 레퍼런스 품질 기준:
+- 원본 엑셀의 평균 형태에 맞춘다: 4,000~5,200자대, H2는 4~6개 중심, 표 1개 이상, 리스트 1개 이상, 이미지 3~4개 권장, 관련 내부링크 2~4개 권장, FAQ는 필수 아님.
+- 딱딱한 데이터 나열이 아니라 ${brand} 블로그처럼 자연스럽게 시작한다. 예: 지역 생활권, 면허 준비 상황, 비용/동선 고민을 먼저 짚고 후보로 연결한다.
+- 원본처럼 "왜 이 후보가 이 지역/상황에 맞는지"를 구체화한다. 주소만 쓰지 말고 생활권, 셔틀 확인 포인트, 면허 종류, 상담 질문, 사진을 같이 엮는다.
+- 후보 소개는 원본 블로그의 카드형 리듬을 따른다. 후보마다 **후보명**, 위치/동선, 추천 대상, 상담 질문, 사진을 짧은 문단과 불릿으로 섞어 보여준다.
+- 후보가 적은 지역은 억지로 BEST 숫자를 키우지 말고 “직접 확인 가능한 후보와 인근 선택지”처럼 정직하게 풀되, 실제 후보명이 보이게 쓴다.
+- 가격·셔틀·합격률·후기는 검증된 자료에 있을 때만 단정한다. 없으면 "상담 때 확인"으로 처리하되, 무엇을 물어봐야 하는지 구체적인 질문으로 써서 빈말처럼 보이지 않게 한다.
+- 수강료 자료가 없으면 60만원대, 70만원대, 709,600원 같은 구체 금액을 추정하지 않는다. 비용 문단은 “상담 시 확인할 항목” 중심으로 쓴다.
+- 관련 글 후보가 있으면 실제 URL만 Markdown 링크로 자연스럽게 넣는다. 관련 글 후보가 없으면 내부링크를 만들지 않는다.
+- 긍정 수강생 리뷰 보충자료가 있으면 후보 설명 안에서 친절·설명·동선 같은 확인된 후기 포인트를 요약 1문장으로만 사용한다. 단, “운전선생 출처”라는 표현은 쓰지 않는다. 리뷰가 없으면 실제 후기처럼 꾸며 쓰지 말고 상담 확인 팁으로 대체한다.
+- 긍정 블로그 리뷰글 보충자료가 있으면 공식 근거처럼 단정하지 말고 “블로그 후기 흐름에서는 이런 점을 확인할 수 있다” 정도로 자연스럽게 녹인다. 링크를 넣을 때는 제공된 실제 URL만 사용한다.
 
 필수 출력 구조:
 - 첫 줄은 '# ' H1 제목. 제목은 주 키워드/지역/직접 매칭 후보 수와 모순되면 안 된다.
-- H2 섹션을 6개 이상 사용한다.
-- 권장 흐름은 템플릿 필수 구조를 우선 따른다. 공통적으로 도입 → 기준 → 후보 → 비교/요약 → 체크리스트 → FAQ → 상담/예약 CTA가 자연스럽게 이어져야 한다.
+- H2 섹션은 4~6개를 기본으로 사용한다. 너무 잘게 쪼개 원본과 다르게 보이지 않게 하고, 많아도 10개를 넘기지 않는다.
+- 권장 흐름은 템플릿 필수 구조를 우선 따른다. 공통적으로 도입 → 기준 → 후보/절차 → 비교/요약 → 체크리스트 → 상담/예약 CTA가 자연스럽게 이어져야 한다.
 - 제공된 학원 수와 관계없이 Markdown 표 1개를 반드시 포함한다. 후보가 1곳이면 주소/연락처/과정/추천 대상/상담 확인점을 담은 요약표로 작성한다.
-- 표는 정상 Markdown 표로 작성한다. 예: | 비교 항목 | 후보 A | 후보 B | 형태.
+- 표는 정상 Markdown 표로 작성한다. 예: | 비교 항목 | 후보 A | 후보 B | 형태. 실제 후보가 있으면 표 안에도 실제 후보명을 넣는다.
 - 후보별 설명에는 가능한 경우 학원명, 주소, 대표전화(vphone 우선), 운영 과정/유형, 추천 대상, 상담 시 확인할 점을 포함한다.
-- 이미지가 제공된 학원이 하나라도 있으면 해당 학원 설명 직후 [IMAGE:academy_1] 같은 실제 이미지 슬롯을 최소 1개, 최대 3개 배치한다. 이미지가 없으면 임의 이미지/플레이스홀더를 만들지 않는다.
+- 이미지가 제공된 학원이 하나라도 있으면 해당 학원 설명 직후 [IMAGE:academy_1] 같은 실제 이미지 슬롯을 최소 2개, 가능하면 3~4개 배치한다. 이미지가 없으면 임의 이미지/플레이스홀더를 만들지 않는다.
 - 허용된 이미지 슬롯은 검증된 자료의 "사용 가능한 이미지 슬롯"에 있는 키만 사용한다.
 - [IMAGE_SLOT: ...], [TABLE_SLOT: ...], [CTA_SLOT: ...], [QUOTE_SLOT: ...] 같은 임의 플레이스홀더는 절대 쓰지 말 것.
 - 체크리스트 섹션은 ✅ 불릿 목록으로 작성한다.
-- FAQ는 질문/답변 3~5개로 작성한다.
-- 마지막 H2 섹션은 ${brand}에서 비교·상담·예약으로 이어지는 자연스러운 CTA로 마무리한다.
+- FAQ는 필수 아님. 필기시험/접수/준비물처럼 질문형 검색 의도일 때만 2~4개로 짧게 작성한다.
+- 마지막 H2 섹션은 ${brand}에서 비교·상담·예약으로 이어지는 자연스러운 CTA로 마무리하고, 브랜드명을 3~7회 정도 자연스럽게 언급한다.
 
 문체/분량:
-- 3,000자 이상, 5,000자 이내. 5,000자를 절대 넘기지 말 것.
+- 4,000~5,200자를 우선 목표로 하고, 최소 3,500자 이상 5,600자 이내로 작성한다. 원본처럼 구체적인 설명과 표/이미지/링크가 있는 풍성한 글을 목표로 한다.
+- 문단 하나는 2~3문장 안에서 끊고, 가능하면 300자 안팎으로 유지한다. 긴 설명 뒤에는 표/불릿/짧은 확인 질문을 넣어 읽기 좋게 만든다.
+- 제목만 이어지는 구조는 피한다. 각 H2 아래에는 독자가 바로 이해할 수 있는 짧은 설명, 표, 리스트, 이미지 중 하나가 반드시 따라와야 한다.
 - 독자가 바로 도움받을 수 있게 구체적으로 쓰되, 확인되지 않은 장점은 "상담 때 확인"으로 표현한다.
 - SEO 키워드는 참고용으로만 사용하고 부자연스럽게 반복하지 말 것.
 - 주 키워드와 맞지 않는 내용으로 글 방향을 틀지 말 것.
@@ -555,23 +850,91 @@ ${facts || "없음"}
 }
 function designWritingGuide(designTemplateId: string): string {
   const guides: Record<string, string> = {
-    editorial: "브랜드 매거진형. 메인 배너는 제목 중심으로 두고, 본문에는 실제 이미지, 요약/비교표 1개, FAQ, 자연스러운 CTA가 이어지도록 작성한다.",
-    comparison: "BEST 비교형. 비교표를 앞쪽에 배치하고 후보별 장단점, 추천 대상, 선택 기준을 명확히 작성한다.",
+    editorial: "원본 블로그형. 생활권 공감 도입, 실제 이미지 3~4개, 요약/비교표 1개, 관련 글 링크, 자연스러운 브랜드 CTA가 이어지도록 작성한다.",
+    comparison: "BEST 비교형. 비교표를 앞쪽에 배치하고 후보별 장단점, 추천 대상, 가격·셔틀·과정 확인점을 명확히 작성한다.",
     "local-guide": "지역 추천형. 지역명, 생활권, 셔틀/동선, 가까운 후보 요약/비교표를 중심으로 로컬 큐레이터처럼 작성한다.",
-    checklist: "체크리스트형. 준비 순서, 상담 전 확인 항목, 실수 방지 체크와 요약표를 짧은 블록으로 나눠 작성한다.",
-    conversion: "예약 전환형. 문제 공감, 해결 기준, 비용/상담 질문 비교표, 예약 CTA가 분명하게 이어지도록 작성한다.",
+    checklist: "체크리스트형. 필기시험/접수/준비물처럼 따라 하기 쉬운 순서와 실수 방지 확인표를 앞쪽에 배치한다.",
+    conversion: "예약 전환형. 상담, 예약, 비용 문의로 이어지되 원본처럼 과장보다 구체적인 확인 질문과 후보 사진을 강조한다.",
     custom: "사용자 지정형. 저장된 기획 메모와 템플릿 구조를 우선 따르되, 섹션을 명확히 나눠 작성한다.",
   };
   return guides[designTemplateId] || guides.editorial!;
 }
+
+function originalArticlePatternGuide(slot: Row): string {
+  const summary = loadArticlePatternSummary();
+  const articleType = articleTypeForSlot(slot);
+  const titlePatterns = selectPatterns(summary.top_title_patterns, articleType, 4);
+  const headingPatterns = selectPatterns(summary.top_heading_patterns, articleType, 3);
+  const metrics = summary.average_structure_metrics || {};
+  const metricLine = [
+    `H2 평균 ${formatMetric(metrics.heading_count, "5~6")}`,
+    `이미지 평균 ${formatMetric(metrics.image_count, "2~3")}`,
+    `표 평균 ${formatMetric(metrics.table_count, "1~2")}`,
+    `리스트 평균 ${formatMetric(metrics.bullet_count, "7~8")}`,
+    `CTA 표현 평균 ${formatMetric(metrics.cta_term_count, "20+")}`,
+  ].join(" / ");
+  const lines = [
+    `- 이 글은 원본 전체 21,275개 글에서 추출한 '${articleType}' 패턴을 우선 따른다.`,
+    `- 평균 구조 기준: ${metricLine}. 단, 검증된 후보/이미지/자료가 부족하면 과장하지 말고 안전하게 축소한다.`,
+  ];
+  if (titlePatterns.length) {
+    lines.push("- 제목 패턴 후보(그대로 복붙하지 말고 슬롯 지역/키워드/후보 수에 맞게 자연화):");
+    for (const pattern of titlePatterns) lines.push(`  - ${pattern.pattern} (예: ${pattern.example_title || ""})`);
+  }
+  if (headingPatterns.length) {
+    lines.push("- 헤딩 흐름 후보(H2 순서 참고, 실제 후보 수/자료에 맞게 조정):");
+    for (const pattern of headingPatterns) lines.push(`  - ${pattern.pattern}`);
+  }
+  lines.push("- 패턴보다 사실 검증이 우선이다. 후보 수, 가격, 셔틀, 합격률, 후기, 이미지가 자료와 모순되면 패턴을 버리고 검증된 사실 기준으로 쓴다.");
+  return lines.join("\n");
+}
+
+function loadArticlePatternSummary(): ArticlePatternSummary {
+  const cached = (loadArticlePatternSummary as any).cache as ArticlePatternSummary | undefined;
+  if (cached) return cached;
+  const file = resolve(PROJECT_DIR, "data/keyword_extract/summaries/summary_all_article_patterns.json");
+  try {
+    const parsed = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+    const summary = parsed && typeof parsed === "object" ? parsed as ArticlePatternSummary : {};
+    (loadArticlePatternSummary as any).cache = summary;
+    return summary;
+  } catch {
+    const summary: ArticlePatternSummary = {};
+    (loadArticlePatternSummary as any).cache = summary;
+    return summary;
+  }
+}
+
+function articleTypeForSlot(slot: Row): string {
+  const templateId = String(slot.template_id || "");
+  const text = [slot.primary_keyword, slot.intent, slot.modifier_1, slot.modifier_2].filter(Boolean).join(" ");
+  if (/T06|T08|T09|T10|T11|T15/u.test(templateId) || /필기|학과시험|기능시험|도로주행|시험장|접수|문제|앱|어플/u.test(text)) return "exam_best";
+  if (/T05|T04/u.test(templateId) || /비용|가격|수강료|절약|1종|2종|보통/u.test(text)) return "cost_comparison";
+  if (/T01/u.test(templateId) || /BEST|추천|비교|합격률/u.test(text)) return "local_best_comparison";
+  if (/T07|T14/u.test(templateId) || /셔틀|동선|주변|근처|지역/u.test(text)) return "local_access";
+  return "general_best";
+}
+
+function selectPatterns(patterns: ArticlePattern[] | undefined, articleType: string, limit: number): ArticlePattern[] {
+  const rows = Array.isArray(patterns) ? patterns : [];
+  const exact = rows.filter((row) => row.article_type === articleType && row.pattern);
+  const fallback = rows.filter((row) => row.pattern);
+  return (exact.length ? exact : fallback).slice(0, limit);
+}
+
+function formatMetric(value: any, fallback: string): string {
+  const n = Number(value);
+  return Number.isFinite(n) ? String(n) : fallback;
+}
+
 function designStructureGuide(designTemplateId: string): string {
   const guides: Record<string, string[]> = {
     editorial: [
       "1) 상황 공감형 도입: 독자가 왜 지금 이 정보를 찾는지 2~3문장으로 시작",
-      "2) 핵심 기준 카드: 비용·동선·과정·상담 질문을 묶어 설명",
-      "3) 후보 소개: 각 후보를 생활권/추천 대상/상담 확인점으로 풀어쓰기",
+      "2) 원본형 핵심 기준: 비용·동선·과정·셔틀·후기 여부를 묶어 설명",
+      "3) 후보 소개: 각 후보를 생활권/추천 대상/상담 확인점/사진으로 풀어쓰기",
       "4) 요약/비교표: 후보 수와 관계없이 핵심 차이 또는 핵심 정보를 표로 정리",
-      "5) FAQ와 자연스러운 상담 CTA로 마무리",
+      "5) 관련 글 링크와 자연스러운 상담 CTA로 마무리",
     ],
     comparison: [
       "1) 첫 H2 또는 두 번째 H2 안에 '한눈에 비교표'를 배치",
@@ -589,7 +952,7 @@ function designStructureGuide(designTemplateId: string): string {
       "1) 초반에 상담 전 체크리스트를 배치",
       "2) 절차/준비물/비용 확인/시험 방식 순서로 짧고 명확하게 정리",
       "3) 각 체크 항목 뒤에 왜 필요한지 1문장 설명",
-      "4) FAQ는 실수 방지 질문 중심으로 구성",
+      "4) FAQ는 검색 의도가 질문형일 때만 실수 방지 질문 중심으로 구성",
     ],
     conversion: [
       "1) 문제 공감 → 해결 기준 → 후보/상담 → CTA 순서 유지",
@@ -604,6 +967,62 @@ function designStructureGuide(designTemplateId: string): string {
     ],
   };
   return (guides[designTemplateId] || guides.editorial!).map((line) => `- ${line}`).join("\n");
+}
+
+function originalTemplateGuide(templateId: string): string {
+  const guides: Record<string, string[]> = {
+    T01: [
+      "제목은 '지역 + 운전면허학원/BEST/가격 비교/셔틀' 축으로 잡되, 실제 후보 수보다 큰 숫자는 금지",
+      "도입에서 지역 생활권·출퇴근/통학 동선을 짚고, 후보별 사진과 비교표를 넣는다",
+      "가격·셔틀·후기는 자료가 있을 때만 단정하고 없으면 상담 질문으로 구체화한다",
+    ],
+    T03: [
+      "검색자가 전체 흐름을 한 번에 이해하도록 준비 순서, 비용 확인, 시험 단계, 학원 선택 기준을 이어 쓴다",
+      "표는 '단계/확인할 것/놓치기 쉬운 점' 형태가 적합하다",
+    ],
+    T04: [
+      "1종/2종/자동/수동/대형 등 선택지가 헷갈리는 상황을 비교한다",
+      "추천 대상과 주의점을 표로 정리하고 과장된 합격 보장은 피한다",
+    ],
+    T05: [
+      "원본의 비용·시간 절약 전략형처럼 총액, 추가비, 재시험 가능성, 셔틀 동선을 구체 질문으로 풀어낸다",
+      "확정 가격이 없으면 '상담 때 물을 질문'을 상세히 적어 빈말을 줄인다",
+    ],
+    T06: [
+      "필기/기능/도로주행 중 하나의 시험 단계를 집중 공략한다",
+      "자주 틀리는 포인트, 연습 순서, 체크리스트를 앞쪽에 둔다",
+    ],
+    T07: [
+      "지역 허브 글처럼 학원 선택, 시험장/접수/비용/준비물을 넓게 연결한다",
+      "관련 글 후보가 있으면 내부 링크를 묶어 다음 글로 이어지게 한다",
+    ],
+    T08: [
+      "운전면허 필기시험 접수형. 온라인/현장 접수, 준비물, 사진, 신분증, 수수료 확인 항목을 절차형으로 쓴다",
+      "공식 정보는 최신 확인 필요 문장으로 보수적으로 처리한다",
+    ],
+    T09: [
+      "필기시험 팁형. 공부 순서, 문제 유형, 앱/모의고사 활용, 시험 당일 체크를 경험형으로 쓴다",
+    ],
+    T10: [
+      "필기시험 앱 추천형. 앱을 임의로 꾸며내지 말고, 앱 선택 기준과 기능 체크리스트 중심으로 쓴다",
+    ],
+    T11: [
+      "지역 운전면허시험장 소개형. 시험장 위치/동선/방문 전 확인사항 중심으로 작성하고 학원 글과 구분한다",
+    ],
+    T12: [
+      "운전면허 취득 총정리형. 교육→필기→기능→도로주행→면허발급 순서로 큰 그림을 제공한다",
+    ],
+    T13: [
+      "특정 타겟 맞춤형. 페르소나의 시간표·예산·이동수단을 기준으로 추천 기준을 달리한다",
+    ],
+    T14: [
+      "전문학원 단독 소개형. 가장 적합한 1곳을 중심으로 사진, 과정, 위치, 상담 질문을 깊게 쓴다",
+    ],
+    T15: [
+      "지역+시험단계 혼합형. 지역 후보와 필기/기능/도로주행 준비 팁을 연결한다",
+    ],
+  };
+  return (guides[templateId] || guides.T03!).map((line) => `- ${line}`).join("\n");
 }
 function publicBrandName(tenant: Row): string {
   return String(tenant.display_name || tenant.domain || "서비스").replace(/\s*(?:샘플|데모)\s*$/u, "").trim() || "서비스";
@@ -625,25 +1044,27 @@ function stripPreamble(md: string) { const lines = md.split(/\r?\n/); const i = 
 function stripPseudoSlots(md: string) {
   return md
     .split(/\r?\n/)
-    .filter((line) => !/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]$/i.test(line.trim()))
+    .filter((line) => !/^\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE|INTERNAL_LINK)_SLOT:[^\]]+\]$/i.test(line.trim()))
     .join("\n")
-    .replace(/\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE)_SLOT:[^\]]+\]/gi, "")
+    .replace(/\[(?:IMAGE|TABLE|CTA|FAQ|QUOTE|INTERNAL_LINK)_SLOT:[^\]]+\]/gi, "")
+    .replace(/\[INTERNAL_LINK:[^\]]+\]/gi, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 function ensureImageSlots(md: string, images: Record<string, string>) {
   const keys = Object.keys(images).sort((a, b) => a.localeCompare(b));
   if (!keys.length || /\[IMAGE:[A-Za-z0-9_-]+\]/.test(md)) return md;
-  const insertions = keys.slice(0, Math.min(3, keys.length)).map((key) => `[IMAGE:${key}]`);
+  const insertions = keys.slice(0, Math.min(4, keys.length)).map((key) => `[IMAGE:${key}]`);
   const blocks = md.split(/\n{2,}/);
   if (blocks.length <= 2) return `${md}\n\n${insertions.join("\n\n")}`.trim();
   blocks.splice(Math.min(3, blocks.length), 0, insertions[0]!);
   if (insertions[1]) blocks.splice(Math.max(5, Math.floor(blocks.length * 0.55)), 0, insertions[1]);
   if (insertions[2]) blocks.splice(Math.max(7, Math.floor(blocks.length * 0.75)), 0, insertions[2]);
+  if (insertions[3]) blocks.splice(Math.max(9, Math.floor(blocks.length * 0.88)), 0, insertions[3]);
   return blocks.join("\n\n").trim();
 }
 function metaDescription(md: string) { for (const raw of md.split(/\r?\n/)) { const s = raw.trim(); if (s && !s.startsWith("#") && !s.startsWith(">") && !s.startsWith("|") && !/^\[IMAGE:[A-Za-z0-9_-]+\]$/.test(s)) return s.replace(/[\*_`#]/g, "").slice(0, 155); } return ""; }
-function publishMarkdownArtifact(slug: string, md: string) { const dir = resolve(process.cwd(), "output"); mkdirSync(dir, { recursive: true }); const staleHtml = resolve(dir, `${slug}.html`); if (existsSync(staleHtml)) unlinkSync(staleHtml); writeFileSync(resolve(dir, `${slug}.md`), md, "utf8"); }
+function publishMarkdownArtifact(slug: string, md: string) { const dir = resolve(PROJECT_DIR, "output"); mkdirSync(dir, { recursive: true }); const staleHtml = resolve(dir, `${slug}.html`); if (existsSync(staleHtml)) unlinkSync(staleHtml); writeFileSync(resolve(dir, `${slug}.md`), md, "utf8"); }
 function jaccard(a: string, b: string) { const A = new Set(tokens(a)), B = new Set(tokens(b)); if (!A.size || !B.size) return 0; let inter = 0; for (const t of A) if (B.has(t)) inter++; return inter / (A.size + B.size - inter); }
 function tokens(s: string) { return s.toLowerCase().replace(/[^\w가-힣\s]/g, " ").split(/\s+/).filter((t) => t.length > 1); }
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
