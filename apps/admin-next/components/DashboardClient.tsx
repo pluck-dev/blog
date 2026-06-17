@@ -45,7 +45,6 @@ export default function DashboardClient() {
         }),
       });
       setOpen(false);
-      e.currentTarget.reset();
       await refresh();
     } catch (err) {
       setError((err as Error).message);
@@ -58,7 +57,7 @@ export default function DashboardClient() {
         <div>
           <p className="eyebrow">Next.js 관리자</p>
           <h1>대시보드</h1>
-          <p className="muted">NestJS 백엔드를 호출하는 단일 관리자 화면입니다.</p>
+          <p className="muted">블로그를 만들고 글/숏츠 작업을 체크리스트처럼 진행합니다.</p>
         </div>
         <button className="btn primary" onClick={() => setOpen((v) => !v)}>+ 새 도메인</button>
       </div>
@@ -67,32 +66,39 @@ export default function DashboardClient() {
 
       {open && (
         <form onSubmit={createTenant} className="card card-pad grid" style={{ maxWidth: 720, marginBottom: 20 }}>
+          <div><h2>새 블로그 만들기</h2><p className="muted small">처음에는 도메인과 이름만 넣어도 됩니다. 나머지는 추천값으로 시작합니다.</p></div>
           <div className="grid grid-2">
-            <Field label="도메인"><input className="input" name="domain" placeholder="academy.example.com" required pattern="[a-z0-9.\-]+" /></Field>
-            <Field label="표시 이름"><input className="input" name="display_name" placeholder="강남 운전학원" required /></Field>
+            <Field label="도메인"><input className="input" name="domain" placeholder="checkpick.kr" required pattern="[a-z0-9.\-]+" /></Field>
+            <Field label="표시 이름"><input className="input" name="display_name" placeholder="체크픽" required /></Field>
           </div>
-          <Field label="업종"><input className="input" name="vertical" list="verticals" placeholder="강남 치과, 분당 헬스장, 운전면허학원..." required /></Field>
-          <datalist id="verticals">{options?.verticals.map((v) => <option key={v} value={v} />)}</datalist>
-          <div className="grid grid-3">
-            <Field label="테마"><select className="select" name="theme">{options?.themes.map((v) => <option key={v}>{v}</option>)}</select></Field>
-            <Field label="브랜드 컬러"><input className="input" name="brand_color" type="color" defaultValue="#5132d7" /></Field>
-            <Field label="일일 한도"><input className="input" name="daily_limit" type="number" defaultValue={30} min={1} max={500} /></Field>
-          </div>
+          <details className="advanced-panel">
+            <summary>고급 옵션</summary>
+            <div className="grid" style={{ marginTop: 12 }}>
+              <Field label="업종"><input className="input" name="vertical" list="verticals" placeholder="health" defaultValue="health" required /></Field>
+              <datalist id="verticals">{options?.verticals.map((v) => <option key={v} value={v} />)}</datalist>
+              <div className="grid grid-3">
+                <Field label="테마"><select className="select" name="theme">{options?.themes.map((v) => <option key={v}>{v}</option>)}</select></Field>
+                <Field label="브랜드 컬러"><input className="input" name="brand_color" type="color" defaultValue="#5132d7" /></Field>
+                <Field label="일일 한도"><input className="input" name="daily_limit" type="number" defaultValue={30} min={1} max={500} /></Field>
+              </div>
+            </div>
+          </details>
           <label className="row small"><input type="checkbox" name="apply_preset" defaultChecked /> 프리셋 이름 매칭 시 자동 적용</label>
           <div className="row"><button className="btn primary" disabled={busy}>{busy ? "생성 중..." : "생성"}</button><button type="button" className="btn" onClick={() => setOpen(false)}>닫기</button></div>
         </form>
       )}
 
-      <div className="grid grid-3" style={{ marginBottom: 22 }}>
+      <div className="grid grid-4" style={{ marginBottom: 22 }}>
         <Stat label="도메인" value={tenants.length} />
         <Stat label="전체 슬롯" value={tenants.reduce((a, t) => a + (t.slot_count ?? 0), 0)} />
         <Stat label="발행 글" value={tenants.reduce((a, t) => a + (t.published_count ?? 0), 0)} accent />
+        <Stat label="숏츠 패키지" value={tenants.reduce((a, t) => a + (t.social_package_count ?? 0), 0)} />
       </div>
 
       {tenants.length === 0 ? (
         <div className="card card-pad" style={{ textAlign: "center", padding: 52 }}>
           <h2>아직 도메인이 없습니다</h2>
-          <p className="muted">새 도메인을 만들고 기획 → 디자인 → 축 → 슬롯 → 작성 순서로 진행하세요.</p>
+          <p className="muted">새 도메인을 만들면 다음 화면에서 체크리스트 순서대로 진행합니다.</p>
         </div>
       ) : (
         <div className="grid grid-3">
@@ -100,10 +106,11 @@ export default function DashboardClient() {
             <Link href={`/t/${encodeURIComponent(t.domain)}`} className="card card-pad" key={t.domain}>
               <div className="spread"><h3>{t.display_name}</h3><span className="badge">{t.vertical}</span></div>
               <p className="muted mono small">{t.domain}</p>
-              <div className="grid grid-3" style={{ gap: 8, marginTop: 16 }}>
+              <div className="grid grid-4" style={{ gap: 8, marginTop: 16 }}>
                 <Mini label="슬롯" value={t.slot_count ?? 0} />
                 <Mini label="대기" value={t.planned_count ?? 0} />
                 <Mini label="발행" value={t.published_count ?? 0} />
+                <Mini label="숏츠" value={t.social_package_count ?? 0} />
               </div>
             </Link>
           ))}

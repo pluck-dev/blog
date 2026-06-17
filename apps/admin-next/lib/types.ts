@@ -2,7 +2,7 @@ export type Axis = "region" | "keyword" | "intent" | "persona" | "modifier";
 export type SlotStatus = "planned" | "in_progress" | "published" | "failed" | "pruned";
 export type PostStatus = "published" | "noindex" | "deleted";
 export type JobStatus = "queued" | "running" | "done" | "failed";
-export type JobKind = "generate" | "dedup" | "indexing" | "prune";
+export type JobKind = "generate" | "dedup" | "indexing" | "prune" | "social_generate" | "video_render" | "site_deploy";
 export type Provider = "claude" | "codex";
 export type DesignTemplateId = "editorial" | "comparison" | "local-guide" | "checklist" | "conversion" | "custom";
 
@@ -13,6 +13,11 @@ export interface Tenant {
   theme: string;
   brand_color: string | null;
   logo_url: string | null;
+  site_url?: string | null;
+  deployment_provider?: string | null;
+  deployment_project?: string | null;
+  video_style_id?: string | null;
+  social_profile?: string | null;
   templates_enabled: string[];
   design_template_id?: DesignTemplateId;
   custom_design_templates?: string | null;
@@ -22,6 +27,8 @@ export interface Tenant {
   slot_count?: number;
   planned_count?: number;
   published_count?: number;
+  social_package_count?: number;
+  ready_deployment_count?: number;
 }
 
 export interface AxisValue {
@@ -68,6 +75,7 @@ export interface PostSummary {
   duration_sec: number | null;
   generated_at: string;
   body_chars: number;
+  social_package_count?: number;
 }
 
 export interface PostDetail extends PostSummary {
@@ -124,6 +132,69 @@ export interface Job {
   result_obj?: Record<string, unknown> & { ok?: number; fail?: number; per_slot?: unknown[] };
 }
 
+export interface SocialCard {
+  index: number;
+  role: "hook" | "point" | "cta" | string;
+  title: string;
+  body: string;
+  accent?: string;
+}
+
+export interface SocialPackage {
+  id: string;
+  tenant: string;
+  post_id: string;
+  post_title?: string | null;
+  post_slug?: string | null;
+  platform: string;
+  format: string;
+  style_id: string;
+  status: "draft" | "ready" | "rendering" | "rendered" | "failed" | "published";
+  title: string;
+  hook: string | null;
+  script: string | null;
+  cards: string;
+  cards_obj: SocialCard[];
+  caption: string | null;
+  hashtags: string;
+  hashtags_obj: string[];
+  render_spec: string | null;
+  render_spec_obj: Record<string, unknown>;
+  video_path: string | null;
+  thumbnail_path: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SiteDeployment {
+  id: string;
+  tenant: string;
+  provider: string;
+  environment: string;
+  site_url: string | null;
+  project_ref: string | null;
+  status: "draft" | "queued" | "building" | "ready" | "failed";
+  build_url: string | null;
+  commit_ref: string | null;
+  notes: string | null;
+  last_deployed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SocialChannel {
+  id: string;
+  tenant: string;
+  platform: string;
+  handle: string;
+  publish_mode: "manual" | "api";
+  status: "planned" | "connected" | "paused";
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface TemplateSpec {
   name: string;
   description?: string;
@@ -141,6 +212,9 @@ export interface AdminOptions {
   templates: string[];
   template_specs: Record<string, TemplateSpec>;
   design_templates: Array<{ id: DesignTemplateId; name: string; summary: string; best_for: string }>;
+  social_platforms: string[];
+  video_styles: Array<{ id: string; name: string; summary: string }>;
+  deployment_providers: string[];
   providers: Provider[];
   preset_options: string[];
   indexing: { has_key: boolean; url_template: string };
@@ -155,6 +229,9 @@ export interface TenantDetailPayload {
   posts?: PostSummary[];
   academies?: Academy[];
   jobs?: Job[];
+  social_packages?: SocialPackage[];
+  deployments?: SiteDeployment[];
+  social_channels?: SocialChannel[];
 }
 
 export interface SlotListPayload {

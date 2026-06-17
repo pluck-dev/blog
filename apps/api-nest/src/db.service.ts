@@ -2,7 +2,7 @@ import { Injectable, OnModuleInit } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { AXES, DRIVING_ORIGINAL_TEMPLATE_IDS, type AxisName, type JobKind } from "./constants.js";
+import { AXES, DRIVING_ORIGINAL_TEMPLATE_IDS, GENERIC_TEMPLATE_IDS, type AxisName, type JobKind } from "./constants.js";
 
 // node:sqlite is available in the project's Node 25 runtime and keeps the Nest port dependency-light.
 const sqlite = await import("node:sqlite" as string) as any;
@@ -24,6 +24,11 @@ CREATE TABLE IF NOT EXISTS tenants (
   theme TEXT NOT NULL DEFAULT 'clean' CHECK (theme IN ('clean','modern','pro')),
   brand_color TEXT DEFAULT '#0066ff',
   logo_url TEXT,
+  site_url TEXT,
+  deployment_provider TEXT NOT NULL DEFAULT 'manual',
+  deployment_project TEXT,
+  video_style_id TEXT NOT NULL DEFAULT 'card-news-clean',
+  social_profile TEXT,
   templates_enabled TEXT NOT NULL DEFAULT '["T01","T03","T04","T05","T06","T07","T08","T09","T10","T11","T12","T13","T14","T15"]',
   design_template_id TEXT NOT NULL DEFAULT 'editorial',
   custom_design_templates TEXT,
@@ -85,7 +90,7 @@ CREATE TABLE IF NOT EXISTS posts (
 CREATE TABLE IF NOT EXISTS jobs (
   id TEXT PRIMARY KEY,
   tenant TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('generate','dedup','indexing','prune')),
+  kind TEXT NOT NULL CHECK (kind IN ('generate','dedup','indexing','prune','social_generate','video_render','site_deploy')),
   payload TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','done','failed')),
   scheduled_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -96,6 +101,61 @@ CREATE TABLE IF NOT EXISTS jobs (
   FOREIGN KEY (tenant) REFERENCES tenants(domain) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status_sched ON jobs(status, scheduled_at);
+CREATE TABLE IF NOT EXISTS social_packages (
+  id TEXT PRIMARY KEY,
+  tenant TEXT NOT NULL,
+  post_id TEXT NOT NULL,
+  platform TEXT NOT NULL DEFAULT 'youtube_shorts',
+  format TEXT NOT NULL DEFAULT 'vertical_9_16',
+  style_id TEXT NOT NULL DEFAULT 'card-news-clean',
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','ready','rendering','rendered','failed','published')),
+  title TEXT NOT NULL,
+  hook TEXT,
+  script TEXT,
+  cards TEXT NOT NULL,
+  caption TEXT,
+  hashtags TEXT,
+  render_spec TEXT,
+  video_path TEXT,
+  thumbnail_path TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (tenant, post_id, platform, style_id),
+  FOREIGN KEY (tenant) REFERENCES tenants(domain) ON DELETE CASCADE,
+  FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_social_packages_tenant_status ON social_packages(tenant, status, updated_at DESC);
+CREATE TABLE IF NOT EXISTS site_deployments (
+  id TEXT PRIMARY KEY,
+  tenant TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'manual',
+  environment TEXT NOT NULL DEFAULT 'production',
+  site_url TEXT,
+  project_ref TEXT,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','queued','building','ready','failed')),
+  build_url TEXT,
+  commit_ref TEXT,
+  notes TEXT,
+  last_deployed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant) REFERENCES tenants(domain) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_site_deployments_tenant_status ON site_deployments(tenant, status, updated_at DESC);
+CREATE TABLE IF NOT EXISTS social_channels (
+  id TEXT PRIMARY KEY,
+  tenant TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  handle TEXT NOT NULL,
+  publish_mode TEXT NOT NULL DEFAULT 'manual' CHECK (publish_mode IN ('manual','api')),
+  status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned','connected','paused')),
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (tenant, platform, handle),
+  FOREIGN KEY (tenant) REFERENCES tenants(domain) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,
   value TEXT,
@@ -171,6 +231,11 @@ export class DbService implements OnModuleInit {
     if (!tenantCols.has("design_template_id")) this.db.exec("ALTER TABLE tenants ADD COLUMN design_template_id TEXT NOT NULL DEFAULT 'editorial'");
     if (!tenantCols.has("custom_design_templates")) this.db.exec("ALTER TABLE tenants ADD COLUMN custom_design_templates TEXT");
     if (!tenantCols.has("content_brief")) this.db.exec("ALTER TABLE tenants ADD COLUMN content_brief TEXT");
+    if (!tenantCols.has("site_url")) this.db.exec("ALTER TABLE tenants ADD COLUMN site_url TEXT");
+    if (!tenantCols.has("deployment_provider")) this.db.exec("ALTER TABLE tenants ADD COLUMN deployment_provider TEXT NOT NULL DEFAULT 'manual'");
+    if (!tenantCols.has("deployment_project")) this.db.exec("ALTER TABLE tenants ADD COLUMN deployment_project TEXT");
+    if (!tenantCols.has("video_style_id")) this.db.exec("ALTER TABLE tenants ADD COLUMN video_style_id TEXT NOT NULL DEFAULT 'card-news-clean'");
+    if (!tenantCols.has("social_profile")) this.db.exec("ALTER TABLE tenants ADD COLUMN social_profile TEXT");
     this.run(`UPDATE tenants SET templates_enabled=?
        WHERE vertical='driving' AND templates_enabled IN ('["T01","T03","T05","T07"]', '["T01","T03","T04","T05","T06","T07"]')`, [JSON.stringify(DRIVING_ORIGINAL_TEMPLATE_IDS)]);
     const postCols = new Set(this.all("PRAGMA table_info(posts)").map((r) => r.name));
@@ -209,6 +274,87 @@ export class DbService implements OnModuleInit {
       FOREIGN KEY (tenant) REFERENCES tenants(domain) ON DELETE CASCADE
     )`);
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_seo_regions_tenant_region ON seo_regions(tenant, region)");
+    this.migrateJobsForPlatformJobs();
+    this.db.exec(`CREATE TABLE IF NOT EXISTS social_packages (
+      id TEXT PRIMARY KEY,
+      tenant TEXT NOT NULL,
+      post_id TEXT NOT NULL,
+      platform TEXT NOT NULL DEFAULT 'youtube_shorts',
+      format TEXT NOT NULL DEFAULT 'vertical_9_16',
+      style_id TEXT NOT NULL DEFAULT 'card-news-clean',
+      status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','ready','rendering','rendered','failed','published')),
+      title TEXT NOT NULL,
+      hook TEXT,
+      script TEXT,
+      cards TEXT NOT NULL,
+      caption TEXT,
+      hashtags TEXT,
+      render_spec TEXT,
+      video_path TEXT,
+      thumbnail_path TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (tenant, post_id, platform, style_id),
+      FOREIGN KEY (tenant) REFERENCES tenants(domain) ON DELETE CASCADE,
+      FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+    )`);
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_social_packages_tenant_status ON social_packages(tenant, status, updated_at DESC)");
+    this.db.exec(`CREATE TABLE IF NOT EXISTS site_deployments (
+      id TEXT PRIMARY KEY,
+      tenant TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'manual',
+      environment TEXT NOT NULL DEFAULT 'production',
+      site_url TEXT,
+      project_ref TEXT,
+      status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','queued','building','ready','failed')),
+      build_url TEXT,
+      commit_ref TEXT,
+      notes TEXT,
+      last_deployed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (tenant) REFERENCES tenants(domain) ON DELETE CASCADE
+    )`);
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_site_deployments_tenant_status ON site_deployments(tenant, status, updated_at DESC)");
+    this.db.exec(`CREATE TABLE IF NOT EXISTS social_channels (
+      id TEXT PRIMARY KEY,
+      tenant TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      handle TEXT NOT NULL,
+      publish_mode TEXT NOT NULL DEFAULT 'manual' CHECK (publish_mode IN ('manual','api')),
+      status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned','connected','paused')),
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (tenant, platform, handle),
+      FOREIGN KEY (tenant) REFERENCES tenants(domain) ON DELETE CASCADE
+    )`);
+  }
+
+  private migrateJobsForPlatformJobs(): void {
+    const row = this.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'");
+    if (!row?.sql || String(row.sql).includes("social_generate")) return;
+    this.transaction(() => {
+      this.db.exec("ALTER TABLE jobs RENAME TO jobs_legacy_platform_migration");
+      this.db.exec(`CREATE TABLE jobs (
+        id TEXT PRIMARY KEY,
+        tenant TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('generate','dedup','indexing','prune','social_generate','video_render','site_deploy')),
+        payload TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','done','failed')),
+        scheduled_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        started_at TEXT,
+        finished_at TEXT,
+        error TEXT,
+        result TEXT,
+        FOREIGN KEY (tenant) REFERENCES tenants(domain) ON DELETE CASCADE
+      )`);
+      this.db.exec(`INSERT INTO jobs (id, tenant, kind, payload, status, scheduled_at, started_at, finished_at, error, result)
+        SELECT id, tenant, kind, payload, status, scheduled_at, started_at, finished_at, error, result FROM jobs_legacy_platform_migration`);
+      this.db.exec("DROP TABLE jobs_legacy_platform_migration");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_status_sched ON jobs(status, scheduled_at)");
+    });
   }
 
   all(sql: string, params: any[] = []): Row[] { return this.db.prepare(sql).all(...params) as Row[]; }
@@ -225,16 +371,19 @@ export class DbService implements OnModuleInit {
     return this.all(`SELECT t.*,
       (SELECT COUNT(*) FROM slots s WHERE s.tenant = t.domain) AS slot_count,
       (SELECT COUNT(*) FROM slots s WHERE s.tenant = t.domain AND s.status='planned') AS planned_count,
-      (SELECT COUNT(*) FROM posts p WHERE p.tenant = t.domain AND p.status='published') AS published_count
+      (SELECT COUNT(*) FROM posts p WHERE p.tenant = t.domain AND p.status='published') AS published_count,
+      (SELECT COUNT(*) FROM social_packages sp WHERE sp.tenant = t.domain) AS social_package_count,
+      (SELECT COUNT(*) FROM site_deployments d WHERE d.tenant = t.domain AND d.status='ready') AS ready_deployment_count
       FROM tenants t ORDER BY t.created_at DESC`);
   }
   getTenant(domain: string): Row | undefined { return this.get("SELECT * FROM tenants WHERE domain=?", [domain]); }
   createTenant(input: { domain: string; display_name: string; vertical: string; theme?: string; brand_color?: string; daily_limit?: number }): void {
-    this.run(`INSERT INTO tenants (domain, display_name, vertical, theme, brand_color, daily_limit) VALUES (?, ?, ?, ?, ?, ?)`,
-      [input.domain, input.display_name, input.vertical, input.theme || "clean", input.brand_color || "#0066ff", input.daily_limit ?? 30]);
+    const templates = input.vertical === "driving" ? DRIVING_ORIGINAL_TEMPLATE_IDS : GENERIC_TEMPLATE_IDS;
+    this.run(`INSERT INTO tenants (domain, display_name, vertical, theme, brand_color, daily_limit, templates_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [input.domain, input.display_name, input.vertical, input.theme || "clean", input.brand_color || "#0066ff", input.daily_limit ?? 30, JSON.stringify(templates)]);
   }
   updateTenant(domain: string, fields: Row): void {
-    const allowed = new Set(["display_name", "vertical", "theme", "brand_color", "daily_limit", "templates_enabled", "logo_url", "design_template_id", "custom_design_templates", "content_brief"]);
+    const allowed = new Set(["display_name", "vertical", "theme", "brand_color", "daily_limit", "templates_enabled", "logo_url", "design_template_id", "custom_design_templates", "content_brief", "site_url", "deployment_provider", "deployment_project", "video_style_id", "social_profile"]);
     const entries = Object.entries(fields).filter(([k, v]) => allowed.has(k) && v !== undefined);
     if (!entries.length) return;
     this.run(`UPDATE tenants SET ${entries.map(([k]) => `${k}=?`).join(", ")} WHERE domain=?`, [...entries.map(([, v]) => v), domain]);
@@ -339,7 +488,9 @@ export class DbService implements OnModuleInit {
   deleteSlot(tenant: string, slotId: string): number { return this.run("DELETE FROM slots WHERE slot_id=? AND tenant=?", [slotId, tenant]).changes ?? 0; }
 
   listPosts(tenant: string, opts: { status?: string; limit?: number } = {}): Row[] {
-    let sql = `SELECT id, tenant, slot_id, slug, title, meta_description, status, design_template_id, provider, model, cost_usd, duration_sec, generated_at, length(body_markdown) AS body_chars FROM posts WHERE tenant=?`;
+    let sql = `SELECT id, tenant, slot_id, slug, title, meta_description, status, design_template_id, provider, model, cost_usd, duration_sec, generated_at, length(body_markdown) AS body_chars,
+      (SELECT COUNT(*) FROM social_packages sp WHERE sp.post_id = posts.id) AS social_package_count
+      FROM posts WHERE tenant=?`;
     const args: any[] = [tenant];
     if (opts.status) { sql += " AND status=?"; args.push(opts.status); }
     sql += " ORDER BY generated_at DESC LIMIT ?"; args.push(opts.limit ?? 200);
@@ -464,6 +615,107 @@ export class DbService implements OnModuleInit {
     return this.run(`DELETE FROM academies WHERE tenant=?${region ? " AND region=?" : ""}`, region ? [tenant, region] : [tenant]).changes ?? 0;
   }
 
+  listSocialPackages(tenant: string, opts: { postId?: string; status?: string; limit?: number } = {}): Row[] {
+    let sql = `SELECT sp.*, p.title AS post_title, p.slug AS post_slug
+      FROM social_packages sp
+      LEFT JOIN posts p ON p.id = sp.post_id
+      WHERE sp.tenant=?`;
+    const args: any[] = [tenant];
+    if (opts.postId) { sql += " AND sp.post_id=?"; args.push(opts.postId); }
+    if (opts.status) { sql += " AND sp.status=?"; args.push(opts.status); }
+    sql += " ORDER BY sp.updated_at DESC LIMIT ?"; args.push(opts.limit ?? 200);
+    return this.all(sql, args);
+  }
+  getSocialPackage(id: string): Row | undefined {
+    return this.get(`SELECT sp.*, p.title AS post_title, p.slug AS post_slug
+      FROM social_packages sp
+      LEFT JOIN posts p ON p.id = sp.post_id
+      WHERE sp.id=?`, [id]);
+  }
+  upsertSocialPackage(input: Row): string {
+    const existing = this.get("SELECT id FROM social_packages WHERE tenant=? AND post_id=? AND platform=? AND style_id=?",
+      [input.tenant, input.post_id, input.platform || "youtube_shorts", input.style_id || "card-news-clean"]);
+    const id = existing?.id || randomUUID();
+    const params = [
+      id,
+      input.tenant,
+      input.post_id,
+      input.platform || "youtube_shorts",
+      input.format || "vertical_9_16",
+      input.style_id || "card-news-clean",
+      input.status || "ready",
+      input.title,
+      input.hook ?? null,
+      input.script ?? null,
+      encodeJson(input.cards) || "[]",
+      input.caption ?? null,
+      encodeJson(input.hashtags) || "[]",
+      encodeJson(input.render_spec),
+      input.video_path ?? null,
+      input.thumbnail_path ?? null,
+      input.error ?? null,
+    ];
+    this.run(`INSERT INTO social_packages (id, tenant, post_id, platform, format, style_id, status, title, hook, script, cards, caption, hashtags, render_spec, video_path, thumbnail_path, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(tenant, post_id, platform, style_id) DO UPDATE SET
+        format=excluded.format,
+        status=excluded.status,
+        title=excluded.title,
+        hook=excluded.hook,
+        script=excluded.script,
+        cards=excluded.cards,
+        caption=excluded.caption,
+        hashtags=excluded.hashtags,
+        render_spec=excluded.render_spec,
+        video_path=excluded.video_path,
+        thumbnail_path=excluded.thumbnail_path,
+        error=excluded.error,
+        updated_at=CURRENT_TIMESTAMP`, params);
+    return id;
+  }
+  updateSocialPackage(id: string, fields: Row): void {
+    const allowed = new Set(["status", "title", "hook", "script", "cards", "caption", "hashtags", "render_spec", "video_path", "thumbnail_path", "error"]);
+    const entries = Object.entries(fields).filter(([k, v]) => allowed.has(k) && v !== undefined).map(([k, v]) => {
+      if (["cards", "hashtags", "render_spec"].includes(k)) return [k, encodeJson(v)] as [string, any];
+      return [k, v] as [string, any];
+    });
+    if (!entries.length) return;
+    this.run(`UPDATE social_packages SET ${entries.map(([k]) => `${k}=?`).join(", ")}, updated_at=CURRENT_TIMESTAMP WHERE id=?`, [...entries.map(([, v]) => v), id]);
+  }
+
+  listSiteDeployments(tenant: string, limit = 50): Row[] {
+    return this.all("SELECT * FROM site_deployments WHERE tenant=? ORDER BY updated_at DESC LIMIT ?", [tenant, limit]);
+  }
+  createSiteDeployment(tenant: string, input: Row): string {
+    const id = randomUUID();
+    this.run(`INSERT INTO site_deployments (id, tenant, provider, environment, site_url, project_ref, status, build_url, commit_ref, notes, last_deployed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, tenant, input.provider || "manual", input.environment || "production", input.site_url ?? null, input.project_ref ?? null, input.status || "draft", input.build_url ?? null, input.commit_ref ?? null, input.notes ?? null, input.last_deployed_at ?? null]);
+    return id;
+  }
+  updateSiteDeployment(id: string, fields: Row): void {
+    const allowed = new Set(["provider", "environment", "site_url", "project_ref", "status", "build_url", "commit_ref", "notes", "last_deployed_at"]);
+    const entries = Object.entries(fields).filter(([k, v]) => allowed.has(k) && v !== undefined);
+    if (!entries.length) return;
+    this.run(`UPDATE site_deployments SET ${entries.map(([k]) => `${k}=?`).join(", ")}, updated_at=CURRENT_TIMESTAMP WHERE id=?`, [...entries.map(([, v]) => v), id]);
+  }
+
+  listSocialChannels(tenant: string): Row[] {
+    return this.all("SELECT * FROM social_channels WHERE tenant=? ORDER BY platform, handle", [tenant]);
+  }
+  upsertSocialChannel(tenant: string, input: Row): string {
+    const existing = this.get("SELECT id FROM social_channels WHERE tenant=? AND platform=? AND handle=?", [tenant, input.platform, input.handle]);
+    const id = existing?.id || randomUUID();
+    this.run(`INSERT INTO social_channels (id, tenant, platform, handle, publish_mode, status, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(tenant, platform, handle) DO UPDATE SET publish_mode=excluded.publish_mode, status=excluded.status, notes=excluded.notes, updated_at=CURRENT_TIMESTAMP`,
+      [id, tenant, input.platform, input.handle, input.publish_mode || "manual", input.status || "planned", input.notes ?? null]);
+    return id;
+  }
+  deleteSocialChannel(tenant: string, id: string): number {
+    return this.run("DELETE FROM social_channels WHERE id=? AND tenant=?", [id, tenant]).changes ?? 0;
+  }
+
   enqueueJob(tenant: string, kind: JobKind, payload: Row): string {
     const id = randomUUID();
     this.run("INSERT INTO jobs (id, tenant, kind, payload, status) VALUES (?, ?, ?, ?, 'queued')", [id, tenant, kind, JSON.stringify(payload)]);
@@ -498,6 +750,7 @@ export function safeJson(value: any, fallback: any): any {
 
 export function tenantOut(row: Row): Row { return { ...row, templates_enabled: safeJson(row.templates_enabled, []) }; }
 export function jobOut(row: Row): Row { return { ...row, payload_obj: safeJson(row.payload, {}), result_obj: safeJson(row.result, {}) }; }
+export function socialPackageOut(row: Row): Row { return { ...row, cards_obj: safeJson(row.cards, []), hashtags_obj: safeJson(row.hashtags, []), render_spec_obj: safeJson(row.render_spec, {}) }; }
 export function nowSql(): string { return new Date().toISOString().replace("T", " ").slice(0, 19); }
 
 function encodeJson(value: unknown): string | null {

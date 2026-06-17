@@ -1,6 +1,6 @@
 export type AxisName = "region" | "keyword" | "intent" | "persona" | "modifier";
 export type ProviderName = "claude" | "codex";
-export type JobKind = "generate" | "dedup" | "indexing" | "prune";
+export type JobKind = "generate" | "dedup" | "indexing" | "prune" | "social_generate" | "video_render" | "site_deploy";
 
 export const AXES: AxisName[] = ["region", "keyword", "intent", "persona", "modifier"];
 
@@ -9,31 +9,41 @@ export const DRIVING_ORIGINAL_TEMPLATE_IDS = [
   "T08", "T09", "T10", "T11", "T12", "T13", "T14", "T15"
 ] as const;
 
+export const GENERIC_TEMPLATE_IDS = ["T03", "T04", "T05", "T06", "T12", "T13"] as const;
+
 export const TEMPLATE_SPECS = {
-  T01: { name: "지역 학원 BEST 비교", primary: ["region"], use_persona: true, modifier_count: 2, weight: 1.0, min_sv: 0, kind: "local_best" },
-  T03: { name: "운전면허 가이드 총정리", primary: ["keyword"], use_persona: true, modifier_count: 1, weight: 0.9, min_sv: 0, kind: "general_guide" },
-  T04: { name: "면허 종류/옵션 비교", primary: ["keyword"], use_persona: true, modifier_count: 0, weight: 0.7, min_sv: 0, kind: "license_compare" },
+  T01: { name: "지역 BEST 비교", primary: ["region"], use_persona: true, modifier_count: 2, weight: 1.0, min_sv: 0, kind: "local_best" },
+  T03: { name: "가이드 총정리", primary: ["keyword"], use_persona: true, modifier_count: 1, weight: 0.9, min_sv: 0, kind: "general_guide" },
+  T04: { name: "종류/옵션 비교", primary: ["keyword"], use_persona: true, modifier_count: 0, weight: 0.7, min_sv: 0, kind: "license_compare" },
   T05: { name: "비용 및 시간 절약 전략", primary: ["keyword"], use_persona: true, modifier_count: 1, weight: 0.95, min_sv: 0, kind: "cost_strategy" },
-  T06: { name: "시험 단계 집중 BEST", primary: ["keyword"], use_persona: false, modifier_count: 0, weight: 0.85, min_sv: 0, with_intent: true, kind: "exam_best" },
+  T06: { name: "단계/절차 집중 BEST", primary: ["keyword"], use_persona: false, modifier_count: 0, weight: 0.85, min_sv: 0, with_intent: true, kind: "exam_best" },
   T07: { name: "지역 허브 총정리", primary: ["region"], use_persona: false, modifier_count: 0, weight: 1.2, min_sv: 0, with_intent: true, kind: "regional_hub" },
-  T08: { name: "운전면허 필기시험 접수", primary: ["keyword"], use_persona: false, modifier_count: 0, weight: 1.05, min_sv: 0, with_intent: true, kind: "written_registration" },
-  T09: { name: "운전면허 필기시험 팁", primary: ["keyword"], use_persona: true, modifier_count: 1, weight: 1.0, min_sv: 0, kind: "written_tips" },
-  T10: { name: "운전면허 필기시험 앱 추천", primary: ["keyword"], use_persona: true, modifier_count: 0, weight: 0.9, min_sv: 0, kind: "written_app" },
-  T11: { name: "지역 운전면허시험장 소개", primary: ["region"], use_persona: false, modifier_count: 0, weight: 0.95, min_sv: 0, with_intent: true, kind: "test_center" },
-  T12: { name: "운전면허 취득 총정리", primary: ["keyword"], use_persona: true, modifier_count: 1, weight: 1.0, min_sv: 0, kind: "license_complete" },
+  T08: { name: "신청/접수 방법", primary: ["keyword"], use_persona: false, modifier_count: 0, weight: 1.05, min_sv: 0, with_intent: true, kind: "written_registration" },
+  T09: { name: "팁/실수 방지", primary: ["keyword"], use_persona: true, modifier_count: 1, weight: 1.0, min_sv: 0, kind: "written_tips" },
+  T10: { name: "앱/도구 추천", primary: ["keyword"], use_persona: true, modifier_count: 0, weight: 0.9, min_sv: 0, kind: "written_app" },
+  T11: { name: "지역 센터/기관 소개", primary: ["region"], use_persona: false, modifier_count: 0, weight: 0.95, min_sv: 0, with_intent: true, kind: "test_center" },
+  T12: { name: "시작부터 완료 총정리", primary: ["keyword"], use_persona: true, modifier_count: 1, weight: 1.0, min_sv: 0, kind: "license_complete" },
   T13: { name: "특정 타겟 맞춤형", primary: ["keyword"], use_persona: true, modifier_count: 1, weight: 0.85, min_sv: 0, kind: "persona_target" },
-  T14: { name: "전문학원 단독 소개", primary: ["region"], use_persona: true, modifier_count: 0, weight: 0.9, min_sv: 0, kind: "academy_profile" },
-  T15: { name: "지역+시험단계 혼합", primary: ["region"], use_persona: true, modifier_count: 1, weight: 0.9, min_sv: 0, with_intent: true, kind: "local_exam_mix" }
+  T14: { name: "단일 업체/기관 소개", primary: ["region"], use_persona: true, modifier_count: 0, weight: 0.9, min_sv: 0, kind: "academy_profile" },
+  T15: { name: "지역+단계 혼합", primary: ["region"], use_persona: true, modifier_count: 1, weight: 0.9, min_sv: 0, with_intent: true, kind: "local_exam_mix" }
 } as const;
 
 export const DESIGN_TEMPLATES = [
   { id: "editorial", name: "브랜드 매거진", summary: "큰 대표 이미지와 부드러운 CTA가 있는 정보성 블로그형", best_for: "정보성 키워드, 초보자 가이드, 총정리 글" },
   { id: "comparison", name: "BEST 비교 블로그", summary: "비교표와 추천 기준을 먼저 보여주는 선택형 구성", best_for: "BEST5, 추천, 가격/기간/옵션 비교" },
-  { id: "local-guide", name: "지역 추천 블로그", summary: "지역명, 셔틀, 동선 정보를 강조하는 로컬 SEO 구성", best_for: "지역 SEO, 근처/주변/동네 검색어" },
-  { id: "checklist", name: "체크리스트 블로그", summary: "저장하고 따라하기 쉬운 체크리스트형 구성", best_for: "시험, 신청, 준비, 절차 키워드" },
+  { id: "local-guide", name: "지역 추천 블로그", summary: "지역명, 접근성, 생활권 정보를 강조하는 로컬 SEO 구성", best_for: "지역 SEO, 근처/주변/동네 검색어" },
+  { id: "checklist", name: "체크리스트 블로그", summary: "저장하고 따라하기 쉬운 체크리스트형 구성", best_for: "검사, 신청, 준비, 절차 키워드" },
   { id: "conversion", name: "예약 전환 블로그", summary: "상담, 예약, 비용 문의 버튼을 강조하는 전환형 구성", best_for: "예약, 상담, 비용 문의, 업체 소개" },
   { id: "custom", name: "커스텀", summary: "직접 적은 디자인 메모를 프롬프트와 미리보기에 반영", best_for: "특수 랜딩, 브랜드 가이드가 있는 사이트" }
 ] as const;
+
+export const SOCIAL_PLATFORMS = ["instagram_reels", "youtube_shorts", "tiktok", "naver_clip"] as const;
+export const VIDEO_STYLES = [
+  { id: "card-news-clean", name: "카드뉴스 클린", summary: "큰 제목, 짧은 문장, 하단 진행바 중심의 9:16 카드뉴스" },
+  { id: "card-news-bold", name: "카드뉴스 볼드", summary: "강한 훅과 대비 색상으로 첫 2초 이탈을 줄이는 쇼츠형" },
+  { id: "checklist-motion", name: "체크리스트 모션", summary: "체크 항목이 순서대로 등장하는 저장 유도형" }
+] as const;
+export const DEPLOYMENT_PROVIDERS = ["manual", "vercel", "netlify", "cloudflare-pages"] as const;
 
 export const PRESETS: Record<string, Record<AxisName, Array<Record<string, unknown>>>> = {
   driving: {
@@ -89,6 +99,19 @@ export const PRESETS: Record<string, Record<AxisName, Array<Record<string, unkno
   },
   general: {
     region: [], keyword: [], intent: [{ value: "비교추천", weight: 5 }, { value: "가이드총정리", weight: 5 }], persona: [{ value: "일반", weight: 5 }], modifier: []
+  },
+  health: {
+    region: [],
+    keyword: [
+      { value: "건강검진", weight: 8, monthly_search_volume: 12000, competition_kd: 52 },
+      { value: "영양제 비교", weight: 7, monthly_search_volume: 7200, competition_kd: 46 },
+      { value: "수면 관리", weight: 7, monthly_search_volume: 6800, competition_kd: 40 },
+      { value: "혈당 관리", weight: 6, monthly_search_volume: 6400, competition_kd: 48 },
+      { value: "다이어트 식단", weight: 6, monthly_search_volume: 9800, competition_kd: 55 }
+    ],
+    intent: ["비교추천", "초보자가이드", "체크리스트", "비용정리", "주의사항", "생활습관"].map((value, i) => ({ value, weight: i < 3 ? 5 : 4 })),
+    persona: ["직장인", "초보자", "부모님", "30대", "40대", "운동입문자"].map((value, i) => ({ value, weight: i < 3 ? 5 : 4 })),
+    modifier: ["쉽게", "비용절약", "루틴", "검사전", "주의할점", "제품비교"].map((value, i) => ({ value, weight: i < 3 ? 4 : 3 }))
   }
 };
 
@@ -96,6 +119,8 @@ export const VERTICAL_TO_PRESET: Record<string, string> = {
   driving: "driving",
   "car-mapping": "car-mapping",
   gym: "general",
+  health: "health",
+  checkpick: "health",
   academy: "general",
   general: "general"
 };

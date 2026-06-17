@@ -45,6 +45,9 @@ export class WorkerService {
     if (job.kind === "dedup") return this.processDedup(job.tenant, payload);
     if (job.kind === "prune") return this.processPrune(job.tenant, payload);
     if (job.kind === "indexing") return this.processIndexing(job.tenant, payload);
+    if (job.kind === "social_generate") return this.processSocialGenerate(job.tenant, payload);
+    if (job.kind === "video_render") return this.processVideoRender(job.tenant, payload);
+    if (job.kind === "site_deploy") return this.processSiteDeploy(job.tenant, payload);
     throw new Error(`unknown job kind: ${job.kind}`);
   }
 
@@ -61,7 +64,8 @@ export class WorkerService {
       try {
         const facts = this.buildFacts(tenant, slot);
         const images = { ...this.imagesForSlot(tenant, slot), ...facts.images };
-        const prompt = buildPrompt(tenantMeta, slot, facts.text, designTemplateId);
+        const drivingMode = isDrivingTenant(tenantMeta);
+        const prompt = drivingMode ? buildPrompt(tenantMeta, slot, facts.text, designTemplateId) : buildGenericPrompt(tenantMeta, slot, facts.text, designTemplateId);
         const llmOpts = { provider: payload.provider || "codex", model: payload.model || "", timeoutSec: Number(payload.timeout_sec || 600) };
         const result = await runLlm(prompt, llmOpts);
         if (!result.ok || !result.summary.trim()) throw new Error(result.error || "empty summary");
@@ -75,7 +79,10 @@ export class WorkerService {
         let model = result.model;
         const maxRepairAttempts = clampInt(payload.max_repair_attempts, 2, 0, 3);
         for (let repairAttempt = 0; qualityIssues.length && repairAttempt < maxRepairAttempts; repairAttempt++) {
-          const repair = await runLlm(buildRepairPrompt(tenantMeta, slot, facts.text, designTemplateId, markdown, qualityIssues), llmOpts);
+          const repairPrompt = drivingMode
+            ? buildRepairPrompt(tenantMeta, slot, facts.text, designTemplateId, markdown, qualityIssues)
+            : buildGenericRepairPrompt(tenantMeta, slot, facts.text, designTemplateId, markdown, qualityIssues);
+          const repair = await runLlm(repairPrompt, llmOpts);
           durationSec += repair.duration_sec;
           costUsd += repair.cost_usd || 0;
           inputTokens += repair.input_tokens || 0;
@@ -90,7 +97,7 @@ export class WorkerService {
         if (qualityIssues.length) throw new Error(`generated article quality gate failed: ${qualityIssues.join(", ")}`);
         const title = extractTitle(markdown, slot.primary_keyword);
         markdown = rewriteH1Title(markdown, title);
-        const finalIssues = postSurfaceQualityIssues({ title, body_markdown: markdown, images: Object.keys(images).length ? JSON.stringify(images) : null, design_template_id: designTemplateId }, 3500, candidateCountFromFacts(facts.text));
+        const finalIssues = postSurfaceQualityIssues({ title, body_markdown: markdown, images: Object.keys(images).length ? JSON.stringify(images) : null, design_template_id: designTemplateId }, drivingMode ? 3500 : 2800, candidateCountFromFacts(facts.text));
         if (finalIssues.length) throw new Error(`generated article final surface gate failed: ${finalIssues.join(", ")}`);
         const slug = this.db.uniqueSlug(tenant, slugify(title), sid);
         this.db.insertPost({
@@ -109,10 +116,12 @@ export class WorkerService {
       }
       if (index < slotIds.length - 1) await sleep(Number(payload.cooldown_sec || 60) * 1000);
     }
-    return { ok, fail, generation_gate_version: "drivingteacher-surface-v8", per_slot };
+    return { ok, fail, generation_gate_version: "platform-surface-v1", per_slot };
   }
 
   private buildFacts(tenant: string, slot: Row): GenerationFacts {
+    const tenantMeta = this.db.getTenant(tenant) || {};
+    if (!isDrivingTenant(tenantMeta)) return genericFactsForSlot(tenantMeta, slot);
     if (!slot.region) return { text: "", images: {} };
     const region = String(slot.region);
     const academies = this.pickAcademiesForRegion(tenant, region, 5);
@@ -145,6 +154,7 @@ export class WorkerService {
   }
 
   private imagesForSlot(tenant: string, slot: Row): Record<string, string> {
+    if (!isDrivingTenant(this.db.getTenant(tenant) || {})) return {};
     if (!slot.region) return {};
     const images: Record<string, string> = {};
     for (const [i, academy] of this.pickAcademiesForRegion(tenant, String(slot.region), 5).entries()) {
@@ -242,6 +252,285 @@ export class WorkerService {
     const urls = posts.map((p) => tpl.replace("{domain}", tenant).replace("{slug}", p.slug));
     return { configured: Boolean(this.db.getSetting("google_sa_json")), submitted: 0, urls, note: "Nest worker collected URLs. Google Indexing submission is intentionally skipped unless a service account integration is added." };
   }
+
+  private processSocialGenerate(tenant: string, payload: Row): Row {
+    const tenantMeta = this.db.getTenant(tenant) || {};
+    const postIds = Array.isArray(payload.post_ids) ? payload.post_ids.map((id) => String(id)).filter(Boolean) : [];
+    const platform = String(payload.platform || "youtube_shorts");
+    const styleId = String(payload.style_id || tenantMeta.video_style_id || "card-news-clean");
+    const cardCount = clampInt(payload.card_count, 8, 5, 12);
+    let ok = 0, fail = 0;
+    const per_post: Row[] = [];
+    for (const postId of postIds) {
+      const post = this.db.getPost(postId);
+      if (!post || post.tenant !== tenant || post.status === "deleted") {
+        fail++;
+        per_post.push({ post_id: postId, ok: false, error: "post not found" });
+        continue;
+      }
+      try {
+        const social = buildSocialPackage(tenantMeta, post, { platform, styleId, cardCount });
+        const packageId = this.db.upsertSocialPackage({
+          tenant,
+          post_id: post.id,
+          platform,
+          style_id: styleId,
+          status: "ready",
+          ...social,
+        });
+        ok++;
+        per_post.push({ post_id: post.id, package_id: packageId, ok: true, cards: social.cards.length, title: social.title });
+      } catch (error: any) {
+        fail++;
+        per_post.push({ post_id: postId, ok: false, error: error?.message || String(error) });
+      }
+    }
+    return { ok, fail, platform, style_id: styleId, per_post };
+  }
+
+  private processVideoRender(tenant: string, payload: Row): Row {
+    const packageIds = Array.isArray(payload.package_ids) ? payload.package_ids.map((id) => String(id)).filter(Boolean) : [];
+    let ok = 0, fail = 0;
+    const per_package: Row[] = [];
+    for (const packageId of packageIds) {
+      const item = this.db.getSocialPackage(packageId);
+      if (!item || item.tenant !== tenant) {
+        fail++;
+        per_package.push({ package_id: packageId, ok: false, error: "social package not found" });
+        continue;
+      }
+      try {
+        this.db.updateSocialPackage(packageId, { status: "rendering", error: null });
+        const manifest = buildRenderManifest(item, payload);
+        const outputDir = resolve(PROJECT_DIR, "exports/social", safePathSegment(tenant));
+        mkdirSync(outputDir, { recursive: true });
+        const manifestPath = resolve(outputDir, `${safePathSegment(packageId)}.render.json`);
+        writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+        this.db.updateSocialPackage(packageId, { status: "ready", render_spec: { ...manifest, manifest_path: manifestPath }, error: null });
+        ok++;
+        per_package.push({
+          package_id: packageId,
+          ok: true,
+          manifest_path: manifestPath,
+          render_command: `npm --prefix apps/video-renderer run render -- --input ${manifestPath}`,
+        });
+      } catch (error: any) {
+        const message = error?.message || String(error);
+        this.db.updateSocialPackage(packageId, { status: "failed", error: message });
+        fail++;
+        per_package.push({ package_id: packageId, ok: false, error: message });
+      }
+    }
+    return { ok, fail, renderer: payload.renderer || "remotion", per_package, note: "Created Remotion-ready manifests. Run the render command after installing apps/video-renderer dependencies to produce MP4 files." };
+  }
+
+  private processSiteDeploy(tenant: string, payload: Row): Row {
+    const deploymentId = String(payload.deployment_id || "");
+    if (!deploymentId) throw new Error("deployment_id required");
+    const rows = this.db.listSiteDeployments(tenant, 200);
+    const deployment = rows.find((row) => row.id === deploymentId);
+    if (!deployment) throw new Error("deployment not found");
+    this.db.updateSiteDeployment(deploymentId, {
+      status: "ready",
+      site_url: deployment.site_url || `https://${tenant}`,
+      last_deployed_at: new Date().toISOString(),
+      notes: [deployment.notes, "Manual deployment checkpoint prepared by worker."].filter(Boolean).join("\n"),
+    });
+    return {
+      deployment_id: deploymentId,
+      provider: deployment.provider || "manual",
+      site_url: deployment.site_url || `https://${tenant}`,
+      note: "Deployment automation checkpoint recorded. Provider API deployment can be attached after hosting credentials are configured.",
+    };
+  }
+}
+
+function buildSocialPackage(tenant: Row, post: Row, opts: { platform: string; styleId: string; cardCount: number }): Row {
+  const brand = String(tenant.display_name || tenant.domain || "브랜드").trim();
+  const siteUrl = String(tenant.site_url || `https://${tenant.domain || post.tenant}`).replace(/\/+$/, "");
+  const title = cleanSocialText(post.title || extractTitle(post.body_markdown || "", "오늘의 체크"));
+  const plain = markdownToPlainText(post.body_markdown || "");
+  const headings = extractMarkdownHeadings(post.body_markdown || "").filter((heading) => heading !== title);
+  const bullets = extractSocialBullets(post.body_markdown || "", plain);
+  const sentences = splitSentences(plain);
+  const hook = makeHook(title, bullets, sentences);
+  const cards = buildCards({ brand, title, hook, headings, bullets, sentences, count: opts.cardCount, siteUrl, slug: post.slug });
+  const narration = cards.map((card: Row, index: number) => `${index + 1}. ${card.title}. ${card.body}`).join("\n");
+  const hashtags = makeHashtags(tenant, post, opts.platform);
+  const caption = [
+    `${title}`,
+    "",
+    cards.slice(1, Math.min(cards.length, 5)).map((card: Row) => `- ${card.title}`).join("\n"),
+    "",
+    `${siteUrl}/community/${post.slug}`,
+    hashtags.map((tag: string) => `#${tag}`).join(" "),
+  ].filter(Boolean).join("\n");
+  return {
+    title: truncateText(title, 70),
+    hook,
+    script: narration,
+    cards,
+    caption,
+    hashtags,
+    render_spec: {
+      composition: "CardNewsShort",
+      width: 1080,
+      height: 1920,
+      fps: 30,
+      duration_sec: Math.max(24, Math.min(60, cards.length * 5)),
+      brand,
+      brand_color: tenant.brand_color || "#5132d7",
+      site_url: siteUrl,
+      post_url: `${siteUrl}/community/${post.slug}`,
+      style_id: opts.styleId,
+      platform: opts.platform,
+    },
+  };
+}
+
+function buildCards(input: { brand: string; title: string; hook: string; headings: string[]; bullets: string[]; sentences: string[]; count: number; siteUrl: string; slug: string }): Row[] {
+  const cards: Row[] = [
+    {
+      role: "hook",
+      title: truncateText(input.title, 34),
+      body: truncateText(input.hook, 76),
+      accent: "start",
+    },
+  ];
+  const pool = [...input.bullets, ...input.headings, ...input.sentences].map((text) => cleanSocialText(text)).filter((text) => text.length >= 8);
+  const seen = new Set<string>();
+  for (const text of pool) {
+    const key = text.replace(/\s+/g, " ").slice(0, 36);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const title = inferCardTitle(text, cards.length);
+    cards.push({
+      role: "point",
+      title: truncateText(title, 28),
+      body: truncateText(text, 92),
+      accent: cards.length % 2 === 0 ? "soft" : "solid",
+    });
+    if (cards.length >= input.count - 1) break;
+  }
+  while (cards.length < input.count - 1) {
+    cards.push({
+      role: "point",
+      title: `체크 ${cards.length}`,
+      body: "자세한 기준은 본문에서 순서대로 확인하세요.",
+      accent: "soft",
+    });
+  }
+  cards.push({
+    role: "cta",
+    title: `${input.brand}에서 이어보기`,
+    body: `${input.siteUrl}/community/${input.slug}`,
+    accent: "cta",
+  });
+  return cards.map((card, index) => ({ ...card, index: index + 1 }));
+}
+
+function makeHook(title: string, bullets: string[], sentences: string[]): string {
+  const first = cleanSocialText(bullets[0] || sentences[0] || title);
+  if (first && first.length > 12) return truncateText(first, 82);
+  return truncateText(`${title} 보기 전에 이것부터 확인하세요.`, 82);
+}
+
+function inferCardTitle(text: string, index: number): string {
+  const match = text.match(/^(.{4,24}?)(?:은|는|이|가|부터|까지|에서|에는|,|\s-|\s:)/u);
+  if (match?.[1]) return match[1].trim();
+  const compact = text.split(/\s+/).slice(0, 5).join(" ");
+  return compact || `포인트 ${index}`;
+}
+
+function buildRenderManifest(item: Row, payload: Row): Row {
+  const cards = safeJson(item.cards, []);
+  const baseSpec = safeJson(item.render_spec, {});
+  return {
+    ...baseSpec,
+    package_id: item.id,
+    tenant: item.tenant,
+    post_id: item.post_id,
+    post_slug: item.post_slug,
+    platform: item.platform,
+    style_id: item.style_id,
+    title: item.title,
+    hook: item.hook,
+    script: item.script,
+    caption: item.caption,
+    hashtags: safeJson(item.hashtags, []),
+    cards,
+    fps: clampInt(payload.fps, Number(baseSpec.fps || 30), 24, 60),
+    output: {
+      filename: `${safePathSegment(item.tenant)}-${safePathSegment(item.post_slug || item.id)}-${safePathSegment(item.platform)}.mp4`,
+      directory: "exports/social/videos",
+    },
+  };
+}
+
+function markdownToPlainText(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/\[[^\]]+\]\([^)]+\)/g, (m) => m.replace(/\(([^)]+)\)/, ""))
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, " ")
+    .replace(/\|/g, " ")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/[*_`>#\[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractMarkdownHeadings(markdown: string): string[] {
+  return markdown.split(/\r?\n/)
+    .map((line) => line.match(/^\s{0,3}#{1,3}\s+(.+)$/)?.[1] || "")
+    .map(cleanSocialText)
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function extractSocialBullets(markdown: string, plain: string): string[] {
+  const bullets = markdown.split(/\r?\n/)
+    .map((line) => line.match(/^\s*(?:[-*+]|\d+\.)\s+(.+)$/)?.[1] || "")
+    .map(cleanSocialText)
+    .filter((line) => line.length >= 8);
+  if (bullets.length >= 4) return bullets.slice(0, 16);
+  return splitSentences(plain).slice(0, 16);
+}
+
+function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?。！？]|다\.|요\.|죠\.|니다\.)\s+/u)
+    .map(cleanSocialText)
+    .filter((line) => line.length >= 10)
+    .slice(0, 20);
+}
+
+function makeHashtags(tenant: Row, post: Row, platform: string): string[] {
+  const base = [tenant.display_name, tenant.vertical, post.title, platform.includes("instagram") ? "릴스" : "쇼츠", "체크리스트", "생활정보"];
+  const words = base.flatMap((value) => String(value || "").split(/[\s,/|·:]+/))
+    .map((word) => word.replace(/[^0-9A-Za-z가-힣_]/g, ""))
+    .filter((word) => word.length >= 2 && word.length <= 18);
+  return Array.from(new Set(words)).slice(0, 10);
+}
+
+function cleanSocialText(value: unknown): string {
+  return String(value ?? "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\[[A-Z_]+:[^\]]+\]/g, " ")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[*_`>#|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function truncateText(text: string, max: number): string {
+  const clean = cleanSocialText(text);
+  return clean.length <= max ? clean : `${clean.slice(0, Math.max(0, max - 1)).trim()}…`;
+}
+
+function safePathSegment(value: unknown): string {
+  return String(value || "item").replace(/[^0-9A-Za-z._-]+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "item";
 }
 
 export async function runWorkerOnceForCli(): Promise<void> {
@@ -721,6 +1010,102 @@ function thinSectionCount(markdown: string): number {
 function isAnyMarkdownTable(markdown: string): boolean {
   const lines = markdown.split(/\r?\n/).map((line) => line.trim());
   return lines.some((line, index) => line.includes("|") && /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(lines[index + 1] || "") && (lines[index + 2] || "").includes("|"));
+}
+
+function isDrivingTenant(tenant: Row): boolean {
+  const vertical = String(tenant.vertical || "").toLowerCase();
+  return vertical === "driving" || vertical.includes("drive") || vertical.includes("운전");
+}
+
+function genericFactsForSlot(tenant: Row, slot: Row): GenerationFacts {
+  const lines = [
+    `브랜드: ${publicBrandName(tenant)}`,
+    `업종: ${tenant.vertical || "general"}`,
+    `주 키워드: ${slot.primary_keyword}`,
+    `지역/범위: ${slot.region || "전국/온라인"}`,
+    `페르소나: ${slot.persona || "일반 독자"}`,
+    `검색 의도: ${slot.intent || "정보 탐색"}`,
+    `강조점: ${[slot.modifier_1, slot.modifier_2].filter(Boolean).join(", ") || "체크리스트와 비교 기준"}`,
+    `브랜드 메모: ${tenant.content_brief || "초보자가 바로 판단할 수 있는 생활정보형 글을 만든다."}`,
+    "작성 범위: 확인되지 않은 수치, 가격, 치료 효과, 보장 표현은 쓰지 않는다.",
+  ];
+  return { text: lines.join("\n"), images: {} };
+}
+
+function buildGenericPrompt(tenant: Row, slot: Row, facts: string, designTemplateId: string): string {
+  const brand = publicBrandName(tenant);
+  const vertical = String(tenant.vertical || "general");
+  return `너는 ${brand} 블로그를 쓰는 한국어 SEO 에디터다. 아래 슬롯을 바탕으로 검색자가 바로 저장하고 공유할 수 있는 완성형 Markdown 글을 작성하라.
+
+브랜드: ${brand}
+업종: ${vertical}
+디자인 템플릿: ${designTemplateId}
+디자인 작성 지침: ${genericDesignWritingGuide(designTemplateId)}
+주 키워드: ${slot.primary_keyword}
+지역/범위: ${slot.region || ""}
+페르소나: ${slot.persona || ""}
+의도: ${slot.intent || ""}
+수식어: ${[slot.modifier_1, slot.modifier_2].filter(Boolean).join(", ")}
+브랜드/작성 메모: ${tenant.content_brief || "없음"}
+
+작성 재료:
+${facts || "없음"}
+
+일반 도메인 작성 원칙:
+- 이 글은 운전학원 글이 아니다. 운전면허, 학원, 셔틀, 합격률, 도로주행 같은 운전 도메인 표현을 쓰지 않는다.
+- 건강/생활정보 주제라면 진단, 치료, 완치, 보장, 의학적 효능을 단정하지 않는다. 필요한 경우 "개인 상태에 따라 다르므로 전문가와 상담" 정도로 안전하게 표현한다.
+- 확인되지 않은 가격, 확률, 후기, 통계, 제품 순위, 기관명은 만들지 않는다.
+- 독자가 바로 판단할 수 있도록 기준, 체크리스트, 비교표, 주의사항, 다음 행동을 구체화한다.
+- 첫 줄은 '# ' H1 제목으로 시작한다.
+- H2 4~7개, Markdown 표 1개 이상, 체크리스트/불릿 1개 이상을 포함한다.
+- 본문은 2,800~4,800자 안에서 작성한다.
+- 문단은 짧게 끊고, 제목만 연속으로 나열하지 않는다.
+- 마지막 섹션은 ${brand}에서 이어 볼 수 있는 자연스러운 CTA로 마무리한다.
+- 출력은 Markdown 본문만 제공한다. 설명, 주석, 내부 자료 표현은 쓰지 않는다.`;
+}
+
+function buildGenericRepairPrompt(tenant: Row, slot: Row, facts: string, designTemplateId: string, markdown: string, issues: string[]): string {
+  const brand = publicBrandName(tenant);
+  return `아래 Markdown 글은 품질 게이트를 통과하지 못했다. 운전학원 도메인 표현을 제거하고, ${brand}의 일반 생활정보 글로 다시 작성하라.
+
+브랜드: ${brand}
+업종: ${tenant.vertical || "general"}
+디자인 템플릿: ${designTemplateId}
+디자인 작성 지침: ${genericDesignWritingGuide(designTemplateId)}
+주 키워드: ${slot.primary_keyword}
+지역/범위: ${slot.region || ""}
+페르소나: ${slot.persona || ""}
+의도: ${slot.intent || ""}
+수식어: ${[slot.modifier_1, slot.modifier_2].filter(Boolean).join(", ")}
+
+실패 사유:
+${issues.map((issue) => `- ${issue}`).join("\n")}
+
+작성 재료:
+${facts || "없음"}
+
+재작성 규칙:
+- 첫 줄은 '# ' 제목.
+- 2,800~4,800자, H2 4~7개, Markdown 표 1개, 체크리스트/불릿 1개 이상.
+- 건강/생활정보 주제는 진단·치료·완치·보장·의학적 효능을 단정하지 않는다.
+- 운전면허, 학원, 셔틀, 합격률, 도로주행 같은 이전 도메인 표현을 넣지 않는다.
+- 확인되지 않은 가격, 후기, 통계, 기관명은 만들지 않는다.
+- 출력은 수정된 Markdown 본문만 제공한다.
+
+기존 Markdown:
+${markdown}`;
+}
+
+function genericDesignWritingGuide(designTemplateId: string): string {
+  const guides: Record<string, string> = {
+    editorial: "정보성 매거진형. 공감 도입, 핵심 기준, 자세한 설명, FAQ/체크리스트, 자연스러운 CTA가 이어지도록 작성한다.",
+    comparison: "비교형. 선택 기준과 비교표를 앞쪽에 배치하고 장단점, 추천 대상, 주의사항을 명확히 작성한다.",
+    "local-guide": "지역/상황형. 지역이나 생활 상황이 있으면 그 맥락을 먼저 잡고, 선택 기준과 다음 행동을 제시한다.",
+    checklist: "체크리스트형. 따라 하기 쉬운 순서, 준비물, 실수 방지 항목을 앞쪽에 배치한다.",
+    conversion: "전환형. 과장 없이 문제 공감, 판단 기준, 확인 질문, CTA를 배치한다.",
+    custom: "사용자 지정형. 저장된 기획 메모를 우선 따르되 섹션을 명확히 나눠 작성한다.",
+  };
+  return guides[designTemplateId] || guides.editorial!;
 }
 
 function buildRepairPrompt(tenant: Row, slot: Row, facts: string, designTemplateId: string, markdown: string, issues: string[]): string {

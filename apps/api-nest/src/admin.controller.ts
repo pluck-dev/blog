@@ -1,8 +1,8 @@
 import { Body, Controller, Delete, Get, Headers, HttpException, HttpStatus, Inject, Param, Patch, Post, Put, Query, Req } from "@nestjs/common";
 import type { Request } from "express";
-import { DbService, jobOut, safeJson, tenantOut } from "./db.service.js";
+import { DbService, jobOut, safeJson, socialPackageOut, tenantOut } from "./db.service.js";
 import { DrivingplusApiService, type SeoRegionLevel } from "./drivingplus-api.service.js";
-import { DESIGN_TEMPLATES, PRESETS, TEMPLATE_SPECS, type AxisName } from "./constants.js";
+import { DEPLOYMENT_PROVIDERS, DESIGN_TEMPLATES, PRESETS, SOCIAL_PLATFORMS, TEMPLATE_SPECS, VIDEO_STYLES, type AxisName } from "./constants.js";
 import { SlotService } from "./slot.service.js";
 import { ensureImageSlotsForRender, fallbackImagesForPost, renderMarkdown, stripPseudoSlotsForRender } from "./post-rendering.js";
 
@@ -21,11 +21,14 @@ export class AdminController {
   options(@Req() req: Request, @Headers() headers: Record<string, string>) {
     checkAuth(req, headers);
     return {
-      verticals: ["driving", "car-mapping", "gym", "academy", "general"],
+      verticals: ["health", "checkpick", "driving", "car-mapping", "gym", "academy", "general"],
       themes: ["clean", "modern", "pro"],
       templates: Object.keys(TEMPLATE_SPECS),
       template_specs: TEMPLATE_SPECS,
       design_templates: DESIGN_TEMPLATES,
+      social_platforms: SOCIAL_PLATFORMS,
+      video_styles: VIDEO_STYLES,
+      deployment_providers: DEPLOYMENT_PROVIDERS,
       providers: ["codex", "claude"],
       preset_options: Object.keys(PRESETS),
       indexing: { has_key: Boolean(this.db.getSetting("google_sa_json")), url_template: this.indexingUrlTemplate() }
@@ -68,6 +71,9 @@ export class AdminController {
     if (include.has("posts")) payload.posts = this.db.listPosts(domain, { limit });
     if (include.has("academies")) payload.academies = this.db.listAcademies(domain, { limit });
     if (include.has("jobs")) payload.jobs = this.db.listJobs({ tenant: domain, limit }).map(jobOut);
+    if (include.has("social") || include.has("social_packages")) payload.social_packages = this.db.listSocialPackages(domain, { limit }).map(socialPackageOut);
+    if (include.has("deployments")) payload.deployments = this.db.listSiteDeployments(domain, limit);
+    if (include.has("channels") || include.has("social_channels")) payload.social_channels = this.db.listSocialChannels(domain);
     return payload;
   }
 
@@ -169,6 +175,43 @@ export class AdminController {
     this.db.deletePost(postId); return { ok: true };
   }
 
+  @Post("tenants/:domain/posts/:postId/social-package")
+  enqueueSocialForPost(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Param("postId") postId: string, @Body() body: Row = {}) {
+    checkAuth(req, headers); const tenant = this.requireTenant(domain);
+    const post = this.db.getPost(postId); if (!post || post.tenant !== domain) throw new HttpException("post not found", 404);
+    const job_id = this.db.enqueueJob(domain, "social_generate", {
+      post_ids: [postId],
+      platform: body.platform || "youtube_shorts",
+      style_id: body.style_id || tenant.video_style_id || "card-news-clean",
+      card_count: body.card_count ?? 8,
+    });
+    return { ok: true, job_id, post_count: 1 };
+  }
+
+  @Get("tenants/:domain/social-packages")
+  listSocialPackages(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Query() query: Row) {
+    checkAuth(req, headers); this.requireTenant(domain);
+    const items = this.db.listSocialPackages(domain, { postId: query.post_id || undefined, status: query.status || undefined, limit: clampInt(query.limit, 100, 1, 500) }).map(socialPackageOut);
+    return { count: items.length, items };
+  }
+
+  @Get("tenants/:domain/social-packages/:packageId")
+  getSocialPackage(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Param("packageId") packageId: string) {
+    checkAuth(req, headers); this.requireTenant(domain);
+    const item = this.db.getSocialPackage(packageId);
+    if (!item || item.tenant !== domain) throw new HttpException("social package not found", 404);
+    return { item: socialPackageOut(item) };
+  }
+
+  @Post("tenants/:domain/social-packages/:packageId/render")
+  enqueueRenderPackage(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Param("packageId") packageId: string, @Body() body: Row = {}) {
+    checkAuth(req, headers); this.requireTenant(domain);
+    const item = this.db.getSocialPackage(packageId);
+    if (!item || item.tenant !== domain) throw new HttpException("social package not found", 404);
+    const job_id = this.db.enqueueJob(domain, "video_render", { package_ids: [packageId], renderer: body.renderer || "remotion", fps: body.fps ?? 30 });
+    return { ok: true, job_id, package_count: 1 };
+  }
+
   @Get("tenants/:domain/academies")
   listAcademies(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Query() query: Row) {
     checkAuth(req, headers); this.requireTenant(domain);
@@ -249,6 +292,82 @@ export class AdminController {
   @Post("tenants/:domain/jobs/indexing")
   enqueueIndexing(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Body() body: Row) {
     checkAuth(req, headers); this.requireTenant(domain); return { ok: true, job_id: this.db.enqueueJob(domain, "indexing", { max: body.max ?? 200, type: "URL_UPDATED" }) };
+  }
+
+  @Post("tenants/:domain/jobs/social-generate")
+  enqueueSocialGenerate(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Body() body: Row) {
+    checkAuth(req, headers); const tenant = this.requireTenant(domain);
+    let postIds = Array.isArray(body.post_ids) ? body.post_ids.map((id: any) => String(id)).filter(Boolean) : [];
+    if (!postIds.length) {
+      postIds = this.db.listPosts(domain, { status: "published", limit: clampInt(body.max, 10, 1, 200) }).map((p) => p.id);
+    }
+    if (!postIds.length) throw new HttpException("숏츠 패키지를 만들 published 글이 없습니다.", 400);
+    return {
+      ok: true,
+      job_id: this.db.enqueueJob(domain, "social_generate", {
+        post_ids: postIds,
+        platform: body.platform || "youtube_shorts",
+        style_id: body.style_id || tenant.video_style_id || "card-news-clean",
+        card_count: body.card_count ?? 8,
+      }),
+      post_count: postIds.length,
+    };
+  }
+
+  @Post("tenants/:domain/jobs/site-deploy")
+  enqueueSiteDeploy(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Body() body: Row = {}) {
+    checkAuth(req, headers); const tenant = this.requireTenant(domain);
+    const deploymentId = this.db.createSiteDeployment(domain, {
+      provider: body.provider || tenant.deployment_provider || "manual",
+      site_url: body.site_url || tenant.site_url || `https://${domain}`,
+      project_ref: body.project_ref || tenant.deployment_project || null,
+      status: "queued",
+      notes: body.notes || null,
+    });
+    return { ok: true, deployment_id: deploymentId, job_id: this.db.enqueueJob(domain, "site_deploy", { deployment_id: deploymentId }) };
+  }
+
+  @Get("tenants/:domain/deployments")
+  listDeployments(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string) {
+    checkAuth(req, headers); this.requireTenant(domain);
+    return { count: this.db.listSiteDeployments(domain).length, items: this.db.listSiteDeployments(domain) };
+  }
+
+  @Post("tenants/:domain/deployments")
+  createDeployment(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Body() body: Row) {
+    checkAuth(req, headers); this.requireTenant(domain);
+    const id = this.db.createSiteDeployment(domain, {
+      provider: body.provider || "manual",
+      environment: body.environment || "production",
+      site_url: String(body.site_url || "").trim() || null,
+      project_ref: String(body.project_ref || "").trim() || null,
+      status: body.status || "draft",
+      notes: String(body.notes || "").trim() || null,
+    });
+    return { ok: true, deployment: this.db.listSiteDeployments(domain).find((d) => d.id === id) };
+  }
+
+  @Get("tenants/:domain/channels")
+  listChannels(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string) {
+    checkAuth(req, headers); this.requireTenant(domain);
+    const items = this.db.listSocialChannels(domain);
+    return { count: items.length, items };
+  }
+
+  @Post("tenants/:domain/channels")
+  upsertChannel(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Body() body: Row) {
+    checkAuth(req, headers); this.requireTenant(domain);
+    const platform = String(body.platform || "").trim();
+    const handle = String(body.handle || "").trim();
+    if (!platform || !handle) throw new HttpException("platform, handle required", 400);
+    const id = this.db.upsertSocialChannel(domain, { platform, handle, publish_mode: body.publish_mode || "manual", status: body.status || "planned", notes: body.notes ?? null });
+    return { ok: true, channel: this.db.listSocialChannels(domain).find((c) => c.id === id) };
+  }
+
+  @Delete("tenants/:domain/channels/:channelId")
+  deleteChannel(@Req() req: Request, @Headers() headers: Record<string, string>, @Param("domain") domain: string, @Param("channelId") channelId: string) {
+    checkAuth(req, headers); this.requireTenant(domain);
+    return { ok: true, deleted: this.db.deleteSocialChannel(domain, channelId) };
   }
 
   @Get("jobs")

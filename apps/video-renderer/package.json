@@ -1,0 +1,27 @@
+{
+  "name": "seo-video-renderer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "render": "tsx src/render.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.478",
+    "@remotion/renderer": "4.0.478",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "remotion": "4.0.478"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "@types/react": "^19.0.12",
+    "@types/react-dom": "^19.0.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.3"
+  },
+  "overrides": {
+    "ws": "8.21.0"
+  }
+}

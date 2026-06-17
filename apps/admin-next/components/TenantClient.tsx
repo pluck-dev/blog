@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, enqueueGenerate, getOptions, getTenantDetail, listSlots, replaceAxis, syncDrivingplusAcademies, syncDrivingplusRegions, updateTenant } from "@/lib/api";
+import { api, deleteSocialChannel, enqueueGenerate, enqueueSiteDeploy, enqueueSocialGenerate, enqueueSocialRender, getOptions, getTenantDetail, listSlots, replaceAxis, syncDrivingplusAcademies, syncDrivingplusRegions, updateTenant, upsertSocialChannel } from "@/lib/api";
 import { formatDateTime } from "@/lib/date";
-import type { Academy, AdminOptions, Axis, AxisValue, Job, PostSummary, Provider, Slot, SlotCounts, Tenant, TenantDetailPayload } from "@/lib/types";
+import type { Academy, AdminOptions, Axis, AxisValue, Job, PostSummary, Provider, SiteDeployment, Slot, SlotCounts, SocialChannel, SocialPackage, Tenant, TenantDetailPayload } from "@/lib/types";
 
 const AXES: Axis[] = ["region", "keyword", "intent", "persona", "modifier"];
 const AXIS_LABEL: Record<Axis, string> = {
@@ -16,14 +16,17 @@ const AXIS_LABEL: Record<Axis, string> = {
 };
 const AXIS_PLACEHOLDER: Record<Axis, string> = {
   region: "강남구\n송파구\n분당",
-  keyword: "운전면허학원\n운전면허 비용\n도로주행 시험",
-  intent: "빠른 합격\n비용 절약\n초보자 준비",
-  persona: "직장인\n대학생\n장롱면허",
-  modifier: "셔틀 편리\n친절한 강사\n최단기",
+  keyword: "건강검진\n영양제 비교\n수면 관리",
+  intent: "비교 추천\n비용 정리\n초보자 가이드",
+  persona: "직장인\n부모님\n운동 입문자",
+  modifier: "쉽게\n루틴\n주의할 점",
 };
-const TABS = [
-  ["overview", "개요"], ["plan", "기획"], ["templates", "글유형/디자인"], ["axes", "축"],
-  ["academies", "학원자료"], ["slots", "슬롯"], ["jobs", "작업"], ["posts", "글"], ["settings", "설정"],
+const PRIMARY_TABS = [
+  ["overview", "쉬운 진행"], ["posts", "완성 글"], ["shorts", "숏츠"], ["jobs", "작업 상태"],
+] as const;
+const ADVANCED_TABS = [
+  ["site", "사이트 설정"], ["plan", "기획 세부 수정"], ["templates", "글 유형/디자인"], ["axes", "키워드 축"],
+  ["academies", "원천자료"], ["slots", "글 후보/작성"], ["settings", "설정"],
 ] as const;
 
 const PREVIEW_DESIGN_SPECS: Record<string, { topCta: string; bottomCta: string }> = {
@@ -46,70 +49,70 @@ const DESIGN_BLUEPRINTS: Record<string, {
 }> = {
   editorial: {
     label: "정보성 글에 가장 무난한 매거진형 화면",
-    title: "운전면허 처음 준비할 때 알아야 할 절차와 비용",
-    lead: "초보자가 검색해서 들어왔을 때 필요한 배경 설명, 이미지, FAQ가 자연스럽게 이어집니다.",
+    title: "건강검진 처음 준비할 때 알아야 할 절차와 비용",
+    lead: "초보자가 검색해서 들어왔을 때 필요한 배경 설명, 체크리스트, FAQ가 자연스럽게 이어집니다.",
     chips: ["가이드", "FAQ", "정보성"],
     sections: ["상단 CTA", "대표 이미지", "중앙 제목", "본문", "예약 CTA"],
     tone: "차분하고 친절한 전문가 톤",
     blocks: [
       { title: "도입", body: "왜 이 정보를 찾는지 공감한 뒤, 글에서 바로 얻을 수 있는 내용을 짧게 알려줍니다." },
       { title: "핵심 설명", body: "절차, 비용, 기간을 순서대로 풀고 중간에 이미지를 배치합니다." },
-      { title: "FAQ", body: "처음 등록해도 되나요?|주말에도 가능한가요?|추가 비용은 언제 생기나요?", kind: "list" },
-      { title: "자연스러운 CTA", body: "주변 학원 찾기나 예약 확인으로 부드럽게 연결합니다.", kind: "cta" },
+      { title: "FAQ", body: "처음 받아도 되나요?|주말에도 가능한가요?|추가 비용은 언제 생기나요?", kind: "list" },
+      { title: "자연스러운 CTA", body: "관련 글, 체크리스트 저장, 상담 전 확인으로 부드럽게 연결합니다.", kind: "cta" },
     ],
   },
   comparison: {
     label: "표와 선택 기준이 먼저 보이는 비교형 화면",
-    title: "강남 운전면허학원 BEST 5, 비용과 셔틀까지 한 번에 비교",
-    lead: "여러 학원을 하나씩 찾지 않아도 되도록 가격대, 접근성, 추천 대상을 먼저 정리합니다.",
+    title: "건강검진 항목 BEST 5, 비용과 준비사항 한 번에 비교",
+    lead: "여러 정보를 하나씩 찾지 않아도 되도록 가격대, 준비사항, 추천 대상을 먼저 정리합니다.",
     chips: ["비교표", "BEST5", "추천"],
     sections: ["비교 기준", "요약 표", "선택지별 장단점", "추천 케이스", "CTA"],
     tone: "객관적이고 판단이 쉬운 톤",
     blocks: [
-      { title: "비교 기준", body: "가격, 셔틀, 주말 수업, 도로주행 코스를 같은 기준으로 맞춰 비교합니다." },
+      { title: "비교 기준", body: "가격, 준비 시간, 주의사항, 추천 대상을 같은 기준으로 맞춰 비교합니다." },
       { title: "한눈에 보는 비교표", body: "표 아래에는 왜 이 항목이 중요한지 짧게 해석하는 문단이 붙습니다.", kind: "table" },
-      { title: "추천 케이스", body: "직장인, 대학생, 장롱면허처럼 상황별 추천을 분리합니다." },
-      { title: "마지막 전환", body: "가까운 학원과 예약 가능한 시간을 확인하도록 연결합니다.", kind: "cta" },
+      { title: "추천 케이스", body: "직장인, 부모님, 초보자처럼 상황별 추천을 분리합니다." },
+      { title: "마지막 전환", body: "관련 체크리스트와 다음 확인 글로 연결합니다.", kind: "cta" },
     ],
   },
   "local-guide": {
     label: "지역 검색어에 맞춘 로컬 랜딩 화면",
-    title: "송파에서 운전면허 준비할 때 먼저 확인할 5가지",
-    lead: "동네에서 실제로 고민하는 이동 거리, 셔틀, 야간 수업 여부를 앞쪽에 배치합니다.",
+    title: "송파에서 건강검진 받을 때 먼저 확인할 5가지",
+    lead: "동네에서 실제로 고민하는 이동 거리, 예약 가능 시간, 준비사항을 앞쪽에 배치합니다.",
     chips: ["지역 SEO", "주변", "동선"],
     sections: ["지역 고민", "주변 선택 기준", "동선/접근성", "추천 시나리오", "CTA"],
     tone: "현장감 있는 로컬 큐레이터 톤",
     blocks: [
       { title: "지역 고민", body: "송파, 잠실, 문정처럼 생활권이 다른 사용자의 이동 동선을 나눠 설명합니다." },
-      { title: "선택 체크", body: "집/학교와 가까운지|셔틀 시간이 맞는지|도로주행 코스가 어렵지 않은지", kind: "list" },
-      { title: "실제 후기 톤", body: "퇴근 후 수업을 잡을 수 있어서 주말에 몰아서 배우는 부담이 줄었다는 식의 현실적인 후기를 넣습니다.", kind: "quote" },
-      { title: "지역 CTA", body: "내 위치 기준으로 가까운 학원을 찾도록 연결합니다.", kind: "cta" },
+      { title: "선택 체크", body: "집/회사와 가까운지|예약 시간이 맞는지|검사 전 준비가 쉬운지", kind: "list" },
+      { title: "실제 후기 톤", body: "퇴근 후에도 예약 가능한 시간을 확인해서 주말에 몰리는 부담이 줄었다는 식의 현실적인 후기를 넣습니다.", kind: "quote" },
+      { title: "지역 CTA", body: "내 위치와 일정 기준으로 다음 확인 글에 연결합니다.", kind: "cta" },
     ],
   },
   checklist: {
     label: "빠르게 훑고 저장하기 좋은 체크리스트 화면",
-    title: "도로주행 시험 전날 체크리스트, 실수 줄이는 순서",
-    lead: "준비물과 감점 포인트를 먼저 보여주고, 상세 설명은 아래로 이어집니다.",
-    chips: ["체크리스트", "시험", "절차"],
+    title: "건강검진 전날 체크리스트, 실수 줄이는 순서",
+    lead: "준비물과 주의사항을 먼저 보여주고, 상세 설명은 아래로 이어집니다.",
+    chips: ["체크리스트", "검사", "절차"],
     sections: ["요약", "준비 체크", "절차", "주의사항", "FAQ"],
     tone: "간결하고 실무적인 안내 톤",
     blocks: [
-      { title: "3분 요약", body: "신분증, 시험 시간, 코스 확인처럼 놓치면 바로 문제가 되는 항목을 맨 위에 둡니다." },
-      { title: "준비 체크", body: "신분증 챙기기|시험장 도착 시간 확인|좌석/거울 조정 연습|감점 포인트 복습", kind: "list" },
-      { title: "자주 하는 실수", body: "방향지시등, 일시정지, 속도 조절처럼 반복되는 실수를 실제 상황 중심으로 설명합니다." },
-      { title: "시험 전 연결", body: "불안한 구간만 추가 연습할 수 있는 학원/강습 탐색으로 이어집니다.", kind: "cta" },
+      { title: "3분 요약", body: "신분증, 예약 시간, 금식 여부처럼 놓치면 바로 문제가 되는 항목을 맨 위에 둡니다." },
+      { title: "준비 체크", body: "신분증 챙기기|예약 시간 확인|금식/복용약 확인|결과 확인 방법 저장", kind: "list" },
+      { title: "자주 하는 실수", body: "전날 식사, 복용 중인 약, 문진표 작성처럼 반복되는 실수를 실제 상황 중심으로 설명합니다." },
+      { title: "검진 전 연결", body: "놓치기 쉬운 준비사항을 다시 확인하는 글로 이어집니다.", kind: "cta" },
     ],
   },
   conversion: {
     label: "상담과 예약 전환을 강조하는 화면",
-    title: "운전면허 비용이 부담될 때, 단기반 선택 전에 볼 기준",
+    title: "건강관리 비용이 부담될 때, 선택 전에 볼 기준",
     lead: "사용자의 문제를 먼저 잡고 해결 기준, 후기, CTA가 반복되지 않게 이어집니다.",
     chips: ["상담", "예약", "비용"],
     sections: ["문제 공감", "해결 기준", "사례/후기", "비용/혜택", "CTA"],
     tone: "신뢰를 주는 세일즈 톤",
     blocks: [
       { title: "문제 공감", body: "시간과 비용이 동시에 부담되는 상황을 구체적으로 짚어 이탈을 줄입니다." },
-      { title: "해결 기준", body: "단기반, 셔틀, 추가 비용 여부를 상담 전 질문 목록으로 정리합니다." },
+      { title: "해결 기준", body: "필수 항목, 추가 비용 여부, 내 상황에 맞는 선택 기준을 질문 목록으로 정리합니다." },
       { title: "후기 배치", body: "상담 후 전체 일정을 한 번에 잡을 수 있어 편했다는 톤으로 신뢰를 보강합니다.", kind: "quote" },
       { title: "상담 CTA", body: "비용과 가능한 일정을 바로 확인하는 버튼을 강하게 보여줍니다.", kind: "cta" },
     ],
@@ -173,13 +176,14 @@ export default function TenantClient({ domain }: { domain: string }) {
         </div>
       </div>
 
-      <Workflow tenant={tenant} counts={counts} active={tab} onTab={setTab} />
+      <EasyProgress steps={operatingSteps(tenant, counts)} active={tab} onTab={setTab} />
 
-      <div className="tabs">
-        {TABS.map(([id, label]) => <button key={id} className={`tab ${tab === id ? "active" : ""}`} onClick={() => setTab(id)}>{label}</button>)}
+      <div className="tabs simple-tabs">
+        {PRIMARY_TABS.map(([id, label]) => <button key={id} className={`tab ${tab === id ? "active" : ""}`} onClick={() => setTab(id)}>{label}</button>)}
       </div>
 
-      {tab === "overview" && <Overview tenant={tenant} counts={counts} onTab={setTab} />}
+      {tab === "overview" && <Overview tenant={tenant} counts={counts} posts={payload.posts ?? []} packages={payload.social_packages ?? []} jobs={payload.jobs ?? []} onTab={setTab} />}
+      {tab === "site" && <Site tenant={tenant} options={options} deployments={payload.deployments ?? []} channels={payload.social_channels ?? []} onSave={saveTenant} onRefresh={refresh} />}
       {tab === "plan" && <Plan tenant={tenant} axes={payload.axes} busy={busy} onSave={saveTenant} onRefresh={refresh} onTab={setTab} />}
       {tab === "templates" && <Templates tenant={tenant} options={options} busy={busy} onSave={saveTenant} />}
       {tab === "axes" && <Axes tenant={tenant} axes={payload.axes} options={options} onRefresh={refresh} />}
@@ -187,39 +191,211 @@ export default function TenantClient({ domain }: { domain: string }) {
       {tab === "slots" && <Slots tenant={tenant} slots={payload.slots ?? []} options={options} onRefresh={refresh} onTab={setTab} />}
       {tab === "jobs" && <Jobs tenant={tenant} jobs={payload.jobs ?? []} onRefresh={refresh} />}
       {tab === "posts" && <Posts tenant={tenant} posts={payload.posts ?? []} onRefresh={refresh} />}
+      {tab === "shorts" && <Shorts tenant={tenant} posts={payload.posts ?? []} packages={payload.social_packages ?? []} options={options} onRefresh={refresh} />}
       {tab === "settings" && <Settings tenant={tenant} options={options} onSave={saveTenant} onRefresh={refresh} />}
     </div>
   );
 }
 
-function Workflow({ tenant, counts, active, onTab }: { tenant: Tenant; counts: SlotCounts; active: string; onTab: (v: string) => void }) {
+type OperatingStep = {
+  tab: string;
+  title: string;
+  body: string;
+  done: boolean;
+  count: string;
+  action: string;
+};
+
+function operatingSteps(tenant: Tenant, counts: SlotCounts): OperatingStep[] {
   const totalSlots = Object.values(counts).reduce((a, b) => a + b, 0);
-  const steps = [
-    { tab: "plan", title: "기획", done: Boolean(tenant.content_brief), count: tenant.content_brief ? "완료" : "필요" },
-    { tab: "templates", title: "유형/디자인", done: tenant.templates_enabled.length > 0, count: `${tenant.templates_enabled.length}개` },
-    { tab: "slots", title: "후보/작성", done: totalSlots > 0, count: `${totalSlots}개` },
-    { tab: "jobs", title: "작업", done: counts.in_progress > 0 || counts.published > 0, count: counts.in_progress > 0 ? `${counts.in_progress}개 진행` : "상태 확인" },
-    { tab: "posts", title: "완성", done: counts.published > 0, count: `${counts.published}개` },
+  return [
+    { tab: "plan", title: "무슨 글을 쓸지 정하기", body: "블로그 방향과 키워드를 한 번만 정리합니다.", done: Boolean(tenant.content_brief), count: tenant.content_brief ? "완료" : "필요", action: "기획 쓰기" },
+    { tab: "slots", title: "글 후보 만들기", body: "정한 키워드로 작성할 글 목록을 자동으로 만듭니다.", done: totalSlots > 0, count: `${totalSlots}개`, action: totalSlots > 0 ? "후보 보기" : "후보 만들기" },
+    { tab: "slots", title: "1개 테스트 글 작성", body: "대량 작성 전에 1개만 먼저 만들어 품질을 확인합니다.", done: counts.published > 0 || counts.in_progress > 0, count: counts.in_progress > 0 ? "진행 중" : `${counts.published}개`, action: "테스트 작성" },
+    { tab: "posts", title: "완성 글 확인", body: "생성된 글을 열어 제목, 내용, 다운로드를 확인합니다.", done: counts.published > 0, count: `${counts.published}개`, action: "글 확인" },
+    { tab: "shorts", title: "숏츠 패키지 만들기", body: "완성 글을 카드뉴스, 대본, 캡션, 해시태그로 바꿉니다.", done: Boolean(tenant.social_package_count), count: `${tenant.social_package_count ?? 0}개`, action: "숏츠 만들기" },
   ];
-  return <div className="workflow" style={{ marginBottom: 20 }}>{steps.map((s, i) => <button key={s.tab} className={`step ${s.done ? "done" : ""} ${active === s.tab ? "active" : ""}`} onClick={() => onTab(s.tab)}><b>{i + 1}. {s.title}</b><p className="muted small">{s.count}</p></button>)}</div>;
 }
 
-function Overview({ tenant, counts, onTab }: { tenant: Tenant; counts: SlotCounts; onTab: (v: string) => void }) {
+function EasyProgress({ steps, active, onTab }: { steps: OperatingStep[]; active: string; onTab: (v: string) => void }) {
+  const complete = steps.filter((step) => step.done).length;
+  return <section className="easy-progress" aria-label="운영 진행 상태">
+    <div className="spread easy-progress-head">
+      <div><b>오늘은 여기서 시작하세요</b><p className="muted small">왼쪽부터 체크하면서 진행하면 됩니다.</p></div>
+      <span className="badge success">{complete}/{steps.length} 완료</span>
+    </div>
+    <div className="workflow">{steps.map((step, i) => <button key={`${step.tab}-${step.title}`} className={`step easy-step ${step.done ? "done" : ""} ${active === step.tab ? "active" : ""}`} onClick={() => onTab(step.tab)}>
+      <span className="checkmark">{step.done ? "✓" : i + 1}</span>
+      <b>{step.title}</b>
+      <p className="muted small">{step.count}</p>
+    </button>)}</div>
+  </section>;
+}
+
+function Overview({ tenant, counts, posts, packages, jobs, onTab }: { tenant: Tenant; counts: SlotCounts; posts: PostSummary[]; packages: SocialPackage[]; jobs: Job[]; onTab: (v: string) => void }) {
+  const steps = operatingSteps(tenant, counts);
+  const nextStep = steps.find((step) => !step.done) ?? steps[steps.length - 1]!;
+  const activeJobs = jobs.filter((job) => job.status === "queued" || job.status === "running").length;
   return <div className="grid">
+    <section className="easy-hero">
+      <div>
+        <p className="eyebrow">다음 할 일</p>
+        <h2>{nextStep.title}</h2>
+        <p>{nextStep.body}</p>
+      </div>
+      <button className="btn primary" onClick={() => onTab(nextStep.tab)}>{nextStep.action}</button>
+    </section>
+
+    <section className="checklist-board">
+      {steps.map((step, i) => <button key={`${step.title}-${i}`} className={`task-card ${step.done ? "done" : ""}`} onClick={() => onTab(step.tab)}>
+        <span className="task-check" aria-hidden="true">{step.done ? "✓" : i + 1}</span>
+        <span className="task-copy"><b>{i + 1}. {step.title}</b><em>{step.body}</em></span>
+        <span className="task-action">{step.done ? "완료" : step.action}</span>
+      </button>)}
+    </section>
+
     <div className="grid grid-4">
-      <Stat label="대기 슬롯" value={counts.planned} /><Stat label="진행" value={counts.in_progress} /><Stat label="발행" value={counts.published} accent /><Stat label="실패" value={counts.failed} />
+      <Stat label="글 후보" value={counts.planned} /><Stat label="작업 중" value={activeJobs} /><Stat label="완성 글" value={posts.length || counts.published} accent /><Stat label="숏츠" value={packages.length} />
     </div>
+
+    <details className="advanced-panel">
+      <summary>고급 설정 열기</summary>
+      <div className="advanced-grid">
+        {ADVANCED_TABS.map(([id, label]) => <button key={id} className="option-card compact-option" onClick={() => onTab(id)}>
+          <b>{label}</b>
+          <p className="muted small">{advancedHelp(id)}</p>
+        </button>)}
+      </div>
+    </details>
+  </div>;
+}
+
+function advancedHelp(id: string): string {
+  if (id === "site") return "사이트 주소, 채널, 배포 기록";
+  if (id === "plan") return "블로그 방향과 키워드 문장 수정";
+  if (id === "templates") return "글 유형과 디자인 선택";
+  if (id === "axes") return "지역/검색어/타겟 값 직접 편집";
+  if (id === "academies") return "검증 자료 직접 추가";
+  if (id === "slots") return "후보 검색, 테스트 작성, 대량 작성";
+  if (id === "settings") return "도메인 정보와 색인 설정";
+  return "";
+}
+
+function Site({ tenant, options, deployments, channels, onSave, onRefresh }: { tenant: Tenant; options: AdminOptions; deployments: SiteDeployment[]; channels: SocialChannel[]; onSave: (f: Record<string, unknown>) => Promise<void>; onRefresh: () => Promise<void> }) {
+  const [form, setForm] = useState({
+    site_url: tenant.site_url ?? `https://${tenant.domain}`,
+    deployment_provider: tenant.deployment_provider ?? "manual",
+    deployment_project: tenant.deployment_project ?? "",
+    video_style_id: tenant.video_style_id ?? "card-news-clean",
+    social_profile: tenant.social_profile ?? "",
+  });
+  const [busy, setBusy] = useState("");
+  async function saveSite() {
+    await onSave({
+      site_url: form.site_url.trim(),
+      deployment_provider: form.deployment_provider,
+      deployment_project: form.deployment_project.trim(),
+      video_style_id: form.video_style_id,
+      social_profile: form.social_profile.trim(),
+    });
+  }
+  async function deploy() {
+    setBusy("deploy");
+    try {
+      const res = await enqueueSiteDeploy(tenant.domain, { provider: form.deployment_provider, site_url: form.site_url, project_ref: form.deployment_project });
+      alert(`배포 체크포인트 등록: ${res.job_id}`);
+      await onRefresh();
+    } catch (e) { alert((e as Error).message); }
+    finally { setBusy(""); }
+  }
+  async function addChannel(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    await upsertSocialChannel(tenant.domain, {
+      platform: fd.get("platform"),
+      handle: fd.get("handle"),
+      publish_mode: fd.get("publish_mode"),
+      status: fd.get("status"),
+      notes: fd.get("notes"),
+    });
+    form.reset();
+    await onRefresh();
+  }
+  async function removeChannel(id: string) {
+    if (!confirm("채널을 삭제할까요?")) return;
+    await deleteSocialChannel(tenant.domain, id);
+    await onRefresh();
+  }
+  return <div className="grid">
     <div className="grid grid-2">
-      <div className="card card-pad"><h2>양산 기획</h2><p className="muted">{tenant.content_brief || "아직 기획 메모가 없습니다."}</p><button className="btn" onClick={() => onTab("plan")}>기획 열기</button></div>
-      <div className="card card-pad"><h2>글 유형/디자인</h2><p className="muted">글 유형 {tenant.templates_enabled.length}개 · 디자인 {tenant.design_template_id ?? "editorial"}</p><button className="btn" onClick={() => onTab("templates")}>디자인 고르기</button></div>
+      <section className="card card-pad grid">
+        <div><h2>사이트 운영 설정</h2><p className="muted small">자체 사이트 배포와 숏츠 패키지에서 공통으로 쓰는 공개 URL/브랜드 설정입니다.</p></div>
+        <Field label="공개 사이트 URL"><input className="input mono" value={form.site_url} onChange={(e) => setForm({ ...form, site_url: e.target.value })} /></Field>
+        <div className="grid grid-2">
+          <Field label="배포 방식"><select className="select" value={form.deployment_provider} onChange={(e) => setForm({ ...form, deployment_provider: e.target.value })}>{options.deployment_providers.map((provider) => <option key={provider}>{provider}</option>)}</select></Field>
+          <Field label="프로젝트/사이트 ref"><input className="input mono" value={form.deployment_project} onChange={(e) => setForm({ ...form, deployment_project: e.target.value })} placeholder="vercel project, netlify site id..." /></Field>
+        </div>
+        <Field label="기본 숏츠 스타일"><select className="select" value={form.video_style_id} onChange={(e) => setForm({ ...form, video_style_id: e.target.value })}>{options.video_styles.map((style) => <option key={style.id} value={style.id}>{style.name} - {style.summary}</option>)}</select></Field>
+        <Field label="대표 소셜 프로필"><input className="input" value={form.social_profile} onChange={(e) => setForm({ ...form, social_profile: e.target.value })} placeholder="@checkpick 또는 https://..." /></Field>
+        <div className="row"><button className="btn primary" onClick={saveSite}>저장</button><button className="btn" onClick={deploy} disabled={busy === "deploy"}>{busy === "deploy" ? "등록 중..." : "배포 체크포인트"}</button></div>
+      </section>
+
+      <form className="card card-pad grid" onSubmit={addChannel}>
+        <div><h2>채널 연결</h2><p className="muted small">1차는 수동 업로드 패키지 기준입니다. API 직접 발행은 나중에 연결합니다.</p></div>
+        <div className="grid grid-2">
+          <Field label="플랫폼"><select className="select" name="platform">{options.social_platforms.map((platform) => <option key={platform}>{platform}</option>)}</select></Field>
+          <Field label="핸들"><input className="input" name="handle" placeholder="@checkpick" required /></Field>
+        </div>
+        <div className="grid grid-2">
+          <Field label="발행 방식"><select className="select" name="publish_mode"><option>manual</option><option>api</option></select></Field>
+          <Field label="상태"><select className="select" name="status"><option>planned</option><option>connected</option><option>paused</option></select></Field>
+        </div>
+        <Field label="메모"><textarea className="textarea" name="notes" placeholder="업로드 시간대, 톤, 금지어 등" /></Field>
+        <button className="btn primary">채널 저장</button>
+      </form>
     </div>
-    <div className="card card-pad"><h2>빠른 시작</h2><ol className="muted"><li>기획 탭에서 글 방향과 축 값을 입력</li><li>글유형/디자인 탭에서 템플릿 선택</li><li>슬롯 탭에서 후보 생성 후 실제 글 작성</li><li>글 탭에서 확인하고 색인/중복/가지치기 실행</li></ol></div>
+
+    <section className="card card-pad grid">
+      <div className="spread"><h2>배포 기록</h2><span className="badge">{deployments.length}개</span></div>
+      <div className="table-wrap"><table><thead><tr><th>상태</th><th>방식</th><th>URL</th><th>갱신</th><th>메모</th></tr></thead><tbody>
+        {deployments.length === 0 && <tr><td colSpan={5} className="muted">아직 배포 기록이 없습니다.</td></tr>}
+        {deployments.map((deployment) => <tr key={deployment.id}><td><Status status={deployment.status} /></td><td>{deployment.provider}<p className="muted small">{deployment.environment}</p></td><td>{deployment.site_url ? <a href={deployment.site_url} target="_blank" className="mono small">{deployment.site_url}</a> : "-"}</td><td className="small muted">{formatDateTime(deployment.updated_at)}</td><td className="small">{deployment.notes || deployment.project_ref || "-"}</td></tr>)}
+      </tbody></table></div>
+    </section>
+
+    <section className="card card-pad grid">
+      <div className="spread"><h2>소셜 채널</h2><span className="badge">{channels.length}개</span></div>
+      <div className="table-wrap"><table><thead><tr><th>플랫폼</th><th>핸들</th><th>발행</th><th>상태</th><th></th></tr></thead><tbody>
+        {channels.length === 0 && <tr><td colSpan={5} className="muted">아직 채널이 없습니다.</td></tr>}
+        {channels.map((channel) => <tr key={channel.id}><td>{channel.platform}</td><td><b>{channel.handle}</b><p className="muted small">{channel.notes}</p></td><td>{channel.publish_mode}</td><td><Status status={channel.status} /></td><td><button className="btn danger" onClick={() => removeChannel(channel.id)}>삭제</button></td></tr>)}
+      </tbody></table></div>
+    </section>
   </div>;
 }
 
 function Plan({ tenant, axes, busy, onSave, onRefresh, onTab }: { tenant: Tenant; axes: TenantDetailPayload["axes"]; busy: boolean; onSave: (f: Record<string, unknown>) => Promise<void>; onRefresh: () => Promise<void>; onTab: (v: string) => void }) {
   const [brief, setBrief] = useState(tenant.content_brief ?? "");
   const [texts, setTexts] = useState<Record<Axis, string>>(() => Object.fromEntries(AXES.map((a) => [a, axes[a]?.map((v) => v.value).join("\n") ?? ""])) as Record<Axis, string>);
+  const applyPreset = (kind: "checkup" | "wellness") => {
+    const preset = kind === "checkup" ? {
+      brief: "직장인과 부모님이 건강검진을 준비할 때 필요한 비용, 준비사항, 검진 항목 비교를 쉽게 정리하는 블로그를 만든다.",
+      region: "전국\n서울\n경기\n부산\n대구",
+      keyword: "건강검진\n건강검진 비용\n종합건강검진\n건강검진 준비사항\n건강검진 금식",
+      intent: "비교 추천\n비용 정리\n준비물 체크\n주의사항\n초보자 가이드",
+      persona: "직장인\n부모님\n30대\n40대\n건강검진 처음 받는 사람",
+      modifier: "쉽게\n꼼꼼하게\n체크리스트\n주의할 점\n비용 절약",
+    } : {
+      brief: "바쁜 사람이 수면, 영양제, 운동 루틴 같은 생활건강 정보를 과장 없이 비교하고 실천할 수 있게 정리하는 블로그를 만든다.",
+      region: "전국\n서울\n경기\n인천\n부산",
+      keyword: "수면 관리\n영양제 비교\n운동 루틴\n스트레칭\n생활건강",
+      intent: "입문 가이드\n비교 추천\n실수 방지\n체크리스트\n루틴 만들기",
+      persona: "직장인\n운동 입문자\n부모님\n수면이 부족한 사람\n건강관리 초보자",
+      modifier: "쉽게\n꾸준히\n현실적인\n주의할 점\n체크리스트",
+    };
+    setBrief(preset.brief);
+    setTexts({ region: preset.region, keyword: preset.keyword, intent: preset.intent, persona: preset.persona, modifier: preset.modifier });
+  };
   async function save() {
     await Promise.all(AXES.map((axis) => {
       const values = parseLines(texts[axis]).map((value) => ({ value, weight: 3, monthly_search_volume: null, competition_kd: null }));
@@ -229,10 +405,10 @@ function Plan({ tenant, axes, busy, onSave, onRefresh, onTab }: { tenant: Tenant
     await onRefresh();
   }
   return <div className="card card-pad grid">
-    <h2>양산할 글 기획</h2>
-    <Field label="이번에 양산할 글의 방향 / 검증된 자료"><textarea className="textarea" rows={7} value={brief} onChange={(e) => setBrief(e.target.value)} placeholder="수도권 직장인이 빠르게 운전면허를 따기 위해 지역별 학원, 비용, 셔틀 여부를 비교하는 글을 만든다." /></Field>
+    <div className="spread"><div><h2>무슨 글을 쓸지 정하기</h2><p className="muted small">처음에는 예시를 넣고 저장해도 됩니다. 나중에 언제든 수정할 수 있습니다.</p></div><div className="row"><button className="btn" onClick={() => applyPreset("checkup")}>건강검진 예시 넣기</button><button className="btn" onClick={() => applyPreset("wellness")}>생활건강 예시 넣기</button></div></div>
+    <Field label="블로그 방향"><textarea className="textarea" rows={5} value={brief} onChange={(e) => setBrief(e.target.value)} placeholder="직장인이 건강검진과 생활건강 정보를 쉽게 비교하고, 검진 전 준비사항과 비용 확인 기준을 저장할 수 있는 글을 만든다." /></Field>
     <div className="grid grid-2">{AXES.map((axis) => <Field key={axis} label={AXIS_LABEL[axis]}><textarea className="textarea" value={texts[axis]} onChange={(e) => setTexts((p) => ({ ...p, [axis]: e.target.value }))} placeholder={AXIS_PLACEHOLDER[axis]} /></Field>)}</div>
-    <div className="row"><button className="btn primary" onClick={save} disabled={busy}>{busy ? "저장 중..." : "기획 저장"}</button><button className="btn" onClick={() => onTab("templates")}>글 유형 고르기</button><button className="btn" onClick={() => onTab("slots")}>글 후보 만들기</button></div>
+    <div className="row"><button className="btn primary" onClick={save} disabled={busy}>{busy ? "저장 중..." : "저장하고 다음으로"}</button><button className="btn" onClick={() => onTab("slots")}>글 후보 만들기</button><button className="btn" onClick={() => onTab("overview")}>쉬운 진행으로 돌아가기</button></div>
   </div>;
 }
 
@@ -302,6 +478,8 @@ function Academies({ tenant, academies, onRefresh }: { tenant: Tenant; academies
   const [regionLevel, setRegionLevel] = useState<"2" | "3" | "all">("2");
   const [replaceRegionAxis, setReplaceRegionAxis] = useState(true);
   const [syncResult, setSyncResult] = useState("");
+  const isDriving = tenant.vertical === "driving";
+  const sourceFields = isDriving ? ["region","name","address","price","shuttle","hours","pass_rate","phone","source_name","source_url","review"] : ["region","name","address","price","hours","phone","source_name","source_url","review"];
   async function add(form: HTMLFormElement) { const fd = Object.fromEntries(new FormData(form).entries()); await api(`/tenants/${encodeURIComponent(tenant.domain)}/academies`, { method: "POST", body: JSON.stringify(fd) }); form.reset(); await onRefresh(); }
   async function bulk(form: HTMLFormElement) { const text = String(new FormData(form).get("json") || ""); await api(`/tenants/${encodeURIComponent(tenant.domain)}/academies`, { method: "POST", body: text }); form.reset(); await onRefresh(); }
   async function del(id: string) { if (!confirm("삭제할까요?")) return; await api(`/tenants/${encodeURIComponent(tenant.domain)}/academies/${id}`, { method: "DELETE" }); await onRefresh(); }
@@ -309,7 +487,7 @@ function Academies({ tenant, academies, onRefresh }: { tenant: Tenant; academies
     setSyncBusy("academies");
     try {
       const res = await syncDrivingplusAcademies(tenant.domain, { include_blog_reviews: true, blog_review_limit: 3 });
-      setSyncResult(`학원/리뷰 ${res.fetched}개 조회 · ${res.upserted}개 반영 · ${res.skipped}개 제외${res.warnings?.length ? ` · 경고 ${res.warnings.length}개` : ""}`);
+      setSyncResult(`자료/리뷰 ${res.fetched}개 조회 · ${res.upserted}개 반영 · ${res.skipped}개 제외${res.warnings?.length ? ` · 경고 ${res.warnings.length}개` : ""}`);
       await onRefresh();
     } catch (e) { alert((e as Error).message); }
     finally { setSyncBusy(""); }
@@ -324,20 +502,20 @@ function Academies({ tenant, academies, onRefresh }: { tenant: Tenant; academies
     finally { setSyncBusy(""); }
   }
   return <div className="grid">
-    <div className="card card-pad grid">
-      <div className="spread"><div><h2>DrivingPlus 원천 데이터 동기화</h2><p className="muted">Swagger API의 학원/지역 데이터를 가져와 글 생성 프롬프트의 검증된 자료로 사용합니다.</p></div><span className="badge info">{academies.length}개 학원</span></div>
+    {isDriving ? <div className="card card-pad grid">
+      <div className="spread"><div><h2>DrivingPlus 원천 데이터 동기화</h2><p className="muted">Swagger API의 학원/지역 데이터를 가져와 글 생성 프롬프트의 검증된 자료로 사용합니다.</p></div><span className="badge info">{academies.length}개 자료</span></div>
       <div className="grid grid-3">
         <Field label="지역 레벨"><select className="select" value={regionLevel} onChange={(e) => setRegionLevel(e.target.value as "2" | "3" | "all")}><option value="2">시군구(level=2, 권장)</option><option value="3">읍면동(level=3, 최대 500개)</option><option value="all">전체</option></select></Field>
         <Field label="지역 축 반영"><label className="row small" style={{ minHeight: 42 }}><input type="checkbox" checked={replaceRegionAxis} onChange={(e) => setReplaceRegionAxis(e.target.checked)} /> axes.region 교체</label></Field>
-        <div className="row" style={{ alignItems: "end" }}><button className="btn" onClick={syncRegions} disabled={Boolean(syncBusy)}>{syncBusy === "regions" ? "지역 동기화 중..." : "지역 동기화"}</button><button className="btn primary" onClick={syncAcademies} disabled={Boolean(syncBusy)}>{syncBusy === "academies" ? "학원 동기화 중..." : "학원 동기화"}</button></div>
+        <div className="row" style={{ alignItems: "end" }}><button className="btn" onClick={syncRegions} disabled={Boolean(syncBusy)}>{syncBusy === "regions" ? "지역 동기화 중..." : "지역 동기화"}</button><button className="btn primary" onClick={syncAcademies} disabled={Boolean(syncBusy)}>{syncBusy === "academies" ? "자료 동기화 중..." : "자료 동기화"}</button></div>
       </div>
       {syncResult && <p className="small badge success" style={{ width: "fit-content" }}>{syncResult}</p>}
-      <p className="muted small">권장 순서: 지역 동기화(level=2, 축 교체) → 학원 동기화(사진·별점리뷰·블로그 리뷰 포함) → 슬롯 탭에서 후보 생성.</p>
-    </div>
-    <div className="card card-pad"><p className="muted">슬롯 지역과 일치하거나 가까운 학원 자료가 생성 프롬프트에 주입됩니다. DrivingPlus 학원은 SEO 설명, vphone, 사진 URL, 별점 리뷰, 블로그 리뷰글도 함께 사용됩니다.</p></div>
-    <form className="card card-pad grid" onSubmit={(e) => { e.preventDefault(); add(e.currentTarget); }}><h2>학원 1곳 추가</h2><div className="grid grid-3">{["region","name","address","price","shuttle","hours","pass_rate","phone","source_name","source_url","review"].map((n) => <input key={n} className="input" name={n} placeholder={n} required={n === "name"} />)}</div><button className="btn primary">추가</button></form>
-    <form className="card card-pad grid" onSubmit={(e) => { e.preventDefault(); bulk(e.currentTarget); }}><h2>JSON 일괄 업로드</h2><textarea className="textarea mono" name="json" placeholder='[{"region":"대구","name":"OO학원","price":"65만원"}]' /><button className="btn">업로드</button></form>
-    <div className="table-wrap"><table><thead><tr><th>지역</th><th>학원명</th><th>전화/사진</th><th>SEO 설명</th><th>출처</th><th></th></tr></thead><tbody>{academies.map((a) => {
+      <p className="muted small">권장 순서: 지역 동기화(level=2, 축 교체) → 원천자료 동기화(사진·별점리뷰·블로그 리뷰 포함) → 슬롯 탭에서 후보 생성.</p>
+    </div> : <div className="card card-pad"><p className="muted">건강/일반 도메인은 확인된 자료만 직접 넣어 사용합니다. 확인되지 않은 의학적 효능, 가격, 후기는 생성하지 않도록 프롬프트에서 제한합니다.</p></div>}
+    <div className="card card-pad"><p className="muted">슬롯 지역과 주제에 맞는 원천자료가 글 생성 프롬프트에 주입됩니다. 자료가 부족하면 부족한 상태 그대로 설명하고, 없는 가격·후기·효능은 만들지 않습니다.</p></div>
+    <form className="card card-pad grid" onSubmit={(e) => { e.preventDefault(); add(e.currentTarget); }}><h2>자료 1건 추가</h2><div className="grid grid-3">{sourceFields.map((n) => <input key={n} className="input" name={n} placeholder={n} required={n === "name"} />)}</div><button className="btn primary">추가</button></form>
+    <form className="card card-pad grid" onSubmit={(e) => { e.preventDefault(); bulk(e.currentTarget); }}><h2>JSON 일괄 업로드</h2><textarea className="textarea mono" name="json" placeholder='[{"region":"전국","name":"건강검진 준비사항","price":"기관별 상이"}]' /><button className="btn">업로드</button></form>
+    <div className="table-wrap"><table><thead><tr><th>지역</th><th>자료명</th><th>연락/사진</th><th>SEO 설명</th><th>출처</th><th></th></tr></thead><tbody>{academies.map((a) => {
       const photoCount = parsePhotoCount(a.photos);
       const reviewCount = parseJsonCount(a.review_json);
       const blogReviewCount = parseJsonCount(a.blog_reviews);
@@ -463,9 +641,105 @@ function Posts({ tenant, posts, onRefresh }: { tenant: Tenant; posts: PostSummar
   const [selected, setSelected] = useState(new Set<string>()); const [q, setQ] = useState("");
   const filtered = posts.filter((p) => !q || `${p.title} ${p.slug}`.toLowerCase().includes(q.toLowerCase()));
   async function job(kind: "dedup" | "prune" | "indexing") { const path = kind === "indexing" ? "indexing" : kind; await api(`/tenants/${encodeURIComponent(tenant.domain)}/jobs/${path}`, { method: "POST", body: JSON.stringify(kind === "dedup" ? { threshold: 0.75 } : kind === "prune" ? { min_body_chars: 700, stale_noindex_days: 90 } : { max: 200 }) }); alert(`${kind} 작업 등록`); }
+  async function makeShorts() { const ids = Array.from(selected); const res = await enqueueSocialGenerate(tenant.domain, { post_ids: ids, style_id: tenant.video_style_id || "card-news-clean", platform: "youtube_shorts" }); alert(`숏츠 패키지 작업 등록: ${res.job_id} · ${res.post_count ?? ids.length}개`); setSelected(new Set()); await onRefresh(); }
   async function delSelected() { if (!confirm(`${selected.size}개 삭제?`)) return; for (const id of selected) await api(`/tenants/${encodeURIComponent(tenant.domain)}/posts/${id}`, { method: "DELETE" }); setSelected(new Set()); await onRefresh(); }
   function downloadMarkdown() { const chosen = posts.filter((p) => selected.has(p.id)); const text = chosen.map((p) => `# ${p.title}\n\nslug: ${p.slug}\n`).join("\n---\n"); const url = URL.createObjectURL(new Blob([text], { type: "text/markdown" })); const a = document.createElement("a"); a.href = url; a.download = `${tenant.domain}-posts.md`; a.click(); URL.revokeObjectURL(url); }
-  return <div className="grid"><div className="row"><input className="input" style={{ width: 260 }} placeholder="제목/슬러그 검색" value={q} onChange={(e) => setQ(e.target.value)} /><span className="muted small">{selected.size}개 선택 / {filtered.length}개</span><button className="btn" onClick={() => job("dedup")} disabled={posts.length < 2}>중복 검사</button><button className="btn" onClick={() => job("prune")} disabled={!posts.length}>가지치기</button><button className="btn" onClick={() => job("indexing")} disabled={!posts.length}>색인 요청</button><button className="btn" onClick={downloadMarkdown} disabled={!selected.size}>Markdown Export</button><button className="btn danger" onClick={delSelected} disabled={!selected.size}>삭제</button></div><div className="table-wrap"><table><thead><tr><th><input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={() => setSelected(selected.size === filtered.length ? new Set() : new Set(filtered.map((p) => p.id)))} /></th><th>제목</th><th>디자인</th><th>자수</th><th>provider</th><th>$</th><th>생성일</th></tr></thead><tbody>{filtered.map((p) => <tr key={p.id}><td><input type="checkbox" checked={selected.has(p.id)} onChange={() => setSelected((prev) => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} /></td><td><Link href={`/t/${encodeURIComponent(tenant.domain)}/post/${p.id}`}><b>{p.title}</b></Link><p className="muted small mono">{p.slug}</p></td><td><span className="badge">{p.design_template_id ?? tenant.design_template_id}</span></td><td>{p.body_chars?.toLocaleString()}</td><td>{p.provider}</td><td>{p.cost_usd ? p.cost_usd.toFixed(3) : "-"}</td><td className="small muted">{formatDateTime(p.generated_at)}</td></tr>)}</tbody></table></div></div>;
+  return <div className="grid"><div className="row"><input className="input" style={{ width: 260 }} placeholder="제목/슬러그 검색" value={q} onChange={(e) => setQ(e.target.value)} /><span className="muted small">{selected.size}개 선택 / {filtered.length}개</span><button className="btn" onClick={makeShorts} disabled={!selected.size}>선택 숏츠 패키지</button><button className="btn" onClick={() => job("dedup")} disabled={posts.length < 2}>중복 검사</button><button className="btn" onClick={() => job("prune")} disabled={!posts.length}>가지치기</button><button className="btn" onClick={() => job("indexing")} disabled={!posts.length}>색인 요청</button><button className="btn" onClick={downloadMarkdown} disabled={!selected.size}>Markdown Export</button><button className="btn danger" onClick={delSelected} disabled={!selected.size}>삭제</button></div><div className="table-wrap"><table><thead><tr><th><input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={() => setSelected(selected.size === filtered.length ? new Set() : new Set(filtered.map((p) => p.id)))} /></th><th>제목</th><th>디자인</th><th>숏츠</th><th>자수</th><th>provider</th><th>$</th><th>생성일</th></tr></thead><tbody>{filtered.map((p) => <tr key={p.id}><td><input type="checkbox" checked={selected.has(p.id)} onChange={() => setSelected((prev) => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} /></td><td><Link href={`/t/${encodeURIComponent(tenant.domain)}/post/${p.id}`}><b>{p.title}</b></Link><p className="muted small mono">{p.slug}</p></td><td><span className="badge">{p.design_template_id ?? tenant.design_template_id}</span></td><td>{p.social_package_count ? <span className="badge success">{p.social_package_count}개</span> : <span className="badge">없음</span>}</td><td>{p.body_chars?.toLocaleString()}</td><td>{p.provider}</td><td>{p.cost_usd ? p.cost_usd.toFixed(3) : "-"}</td><td className="small muted">{formatDateTime(p.generated_at)}</td></tr>)}</tbody></table></div></div>;
+}
+
+function Shorts({ tenant, posts, packages, options, onRefresh }: { tenant: Tenant; posts: PostSummary[]; packages: SocialPackage[]; options: AdminOptions; onRefresh: () => Promise<void> }) {
+  const [selectedPosts, setSelectedPosts] = useState(new Set<string>());
+  const [selectedPackages, setSelectedPackages] = useState(new Set<string>());
+  const [platform, setPlatform] = useState("youtube_shorts");
+  const [styleId, setStyleId] = useState(tenant.video_style_id ?? "card-news-clean");
+  const [cardCount, setCardCount] = useState(8);
+  const selectedPackageRows = packages.filter((pkg) => selectedPackages.has(pkg.id));
+  async function generateForSelected() {
+    const ids = Array.from(selectedPosts);
+    const res = await enqueueSocialGenerate(tenant.domain, { post_ids: ids, platform, style_id: styleId, card_count: cardCount });
+    alert(`숏츠 패키지 생성 작업 등록: ${res.job_id} · ${res.post_count ?? ids.length}개`);
+    setSelectedPosts(new Set());
+    await onRefresh();
+  }
+  async function generateRecent() {
+    const res = await enqueueSocialGenerate(tenant.domain, { max: Math.min(10, Math.max(1, posts.length)), platform, style_id: styleId, card_count: cardCount });
+    alert(`최근 글 숏츠 생성 작업 등록: ${res.job_id} · ${res.post_count ?? 0}개`);
+    await onRefresh();
+  }
+  async function renderSelected() {
+    for (const pkg of selectedPackageRows) await enqueueSocialRender(tenant.domain, pkg.id, { renderer: "remotion", fps: 30 });
+    alert(`${selectedPackageRows.length}개 렌더 manifest 작업 등록`);
+    setSelectedPackages(new Set());
+    await onRefresh();
+  }
+  function downloadPackage(pkg: SocialPackage) {
+    const payload = {
+      package_id: pkg.id,
+      tenant: pkg.tenant,
+      post_id: pkg.post_id,
+      title: pkg.title,
+      platform: pkg.platform,
+      style_id: pkg.style_id,
+      cards: pkg.cards_obj,
+      script: pkg.script,
+      caption: pkg.caption,
+      hashtags: pkg.hashtags_obj,
+      render_spec: pkg.render_spec_obj,
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${tenant.domain}-${pkg.post_slug || pkg.id}-shorts.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+  return <div className="grid">
+    <section className="card card-pad grid">
+      <div className="spread"><div><h2>숏츠/Reels 자동화</h2><p className="muted">글을 카드뉴스형 숏츠 패키지로 변환하고 Remotion 렌더 manifest를 만듭니다.</p></div><span className="badge info">{packages.length}개 패키지</span></div>
+      <div className="grid grid-4">
+        <Field label="플랫폼"><select className="select" value={platform} onChange={(e) => setPlatform(e.target.value)}>{options.social_platforms.map((value) => <option key={value}>{value}</option>)}</select></Field>
+        <Field label="영상 스타일"><select className="select" value={styleId} onChange={(e) => setStyleId(e.target.value)}>{options.video_styles.map((style) => <option key={style.id} value={style.id}>{style.name}</option>)}</select></Field>
+        <Field label="카드 수"><input className="input" type="number" min={5} max={12} value={cardCount} onChange={(e) => setCardCount(Number(e.target.value))} /></Field>
+        <div className="row" style={{ alignItems: "end" }}><button className="btn" onClick={generateRecent} disabled={!posts.length}>최근 글 10개</button><button className="btn primary" onClick={generateForSelected} disabled={!selectedPosts.size}>선택 글 생성</button></div>
+      </div>
+      <p className="muted small">1차 발행 방식은 MP4/캡션/해시태그를 내려받아 수동 업로드하는 구조입니다. API 직접 발행은 채널 인증이 붙은 뒤 확장합니다.</p>
+    </section>
+
+    <section className="grid" style={{ gridTemplateColumns: "minmax(280px, 420px) minmax(0, 1fr)", alignItems: "start" }}>
+      <div className="card card-pad grid">
+        <div className="spread"><h2>글 선택</h2><span className="muted small">{selectedPosts.size}개 선택</span></div>
+        <div className="short-list">
+          {posts.length === 0 && <p className="muted small">먼저 글을 생성하세요.</p>}
+          {posts.slice(0, 80).map((post) => <label key={post.id} className="short-row">
+            <input type="checkbox" checked={selectedPosts.has(post.id)} onChange={() => setSelectedPosts((prev) => { const next = new Set(prev); next.has(post.id) ? next.delete(post.id) : next.add(post.id); return next; })} />
+            <span><b>{post.title}</b><em>{post.slug} · 숏츠 {post.social_package_count ?? 0}개</em></span>
+          </label>)}
+        </div>
+      </div>
+
+      <div className="grid">
+        <div className="row"><button className="btn" onClick={renderSelected} disabled={!selectedPackages.size}>선택 Remotion manifest</button><span className="muted small">{selectedPackages.size}개 패키지 선택</span></div>
+        {packages.length === 0 && <div className="card card-pad muted">아직 숏츠 패키지가 없습니다. 글을 선택하고 “선택 글 생성”을 누르세요.</div>}
+        {packages.map((pkg) => <details className="card" key={pkg.id} open={pkg.status === "failed"}>
+          <summary className="spread" style={{ padding: 16, cursor: "pointer" }}>
+            <div className="row"><input type="checkbox" checked={selectedPackages.has(pkg.id)} onClick={(e) => e.stopPropagation()} onChange={() => setSelectedPackages((prev) => { const next = new Set(prev); next.has(pkg.id) ? next.delete(pkg.id) : next.add(pkg.id); return next; })} /><Status status={pkg.status} /><b>{pkg.title}</b><span className="badge">{pkg.platform}</span><span className="badge">{pkg.style_id}</span></div>
+            <span className="muted small">{formatDateTime(pkg.updated_at)}</span>
+          </summary>
+          <div className="card-pad grid" style={{ borderTop: "1px solid var(--line)" }}>
+            <p className="muted small">원문: {pkg.post_title || pkg.post_slug || pkg.post_id}</p>
+            {pkg.error && <p className="toast-error">{pkg.error}</p>}
+            <div className="shorts-preview">{pkg.cards_obj.map((card) => <div className={`short-card ${card.role}`} key={`${pkg.id}-${card.index}`}><span>{card.index}</span><b>{card.title}</b><p>{card.body}</p></div>)}</div>
+            <div className="grid grid-2">
+              <div><h3>캡션</h3><pre className="codebox small">{pkg.caption || ""}</pre></div>
+              <div><h3>대본</h3><pre className="codebox small">{pkg.script || ""}</pre></div>
+            </div>
+            <div className="row"><button className="btn" onClick={() => downloadPackage(pkg)}>JSON 다운로드</button><button className="btn primary" onClick={async () => { const res = await enqueueSocialRender(tenant.domain, pkg.id); alert(`렌더 manifest 작업 등록: ${res.job_id}`); await onRefresh(); }}>Remotion manifest</button></div>
+            {Object.keys(pkg.render_spec_obj || {}).length > 0 && <details><summary className="small muted">render spec</summary><pre className="codebox small">{JSON.stringify(pkg.render_spec_obj, null, 2)}</pre></details>}
+          </div>
+        </details>)}
+      </div>
+    </section>
+  </div>;
 }
 
 function Settings({ tenant, options, onSave, onRefresh }: { tenant: Tenant; options: AdminOptions; onSave: (f: Record<string, unknown>) => Promise<void>; onRefresh: () => Promise<void> }) {
@@ -502,9 +776,9 @@ function DesignPreview({ blueprint, designId, brand, title, summary }: { bluepri
 }
 
 function PreviewBlock({ block }: { block: typeof DESIGN_BLUEPRINTS[string]["blocks"][number] }) {
-  if (block.kind === "table") return <div className="preview-block"><b>{block.title}</b><div className="mini-table"><span>항목</span><span>장점</span><span>추천</span><span>A 학원</span><span>셔틀</span><span>직장인</span><span>B 학원</span><span>단기반</span><span>대학생</span></div><p>{block.body}</p></div>;
+  if (block.kind === "table") return <div className="preview-block"><b>{block.title}</b><div className="mini-table"><span>항목</span><span>장점</span><span>추천</span><span>선택지 A</span><span>준비 쉬움</span><span>직장인</span><span>선택지 B</span><span>주의사항</span><span>부모님</span></div><p>{block.body}</p></div>;
   if (block.kind === "quote") return <blockquote className="preview-quote">{block.body}</blockquote>;
-  if (block.kind === "cta") return <div className="preview-block preview-cta-block"><b>{block.title}</b><p>{block.body}</p><button className="btn primary">상담/예약으로 연결</button></div>;
+  if (block.kind === "cta") return <div className="preview-block preview-cta-block"><b>{block.title}</b><p>{block.body}</p><button className="btn primary">다음 행동으로 연결</button></div>;
   if (block.kind === "list") return <div className="preview-block"><b>{block.title}</b><ul>{block.body.split("|").map((item) => <li key={item}>✓ {item}</li>)}</ul></div>;
   return <div className="preview-block"><b>{block.title}</b><p>{block.body}</p></div>;
 }
@@ -515,10 +789,15 @@ function Status({ status }: { status: string }) { const cls = status === "publis
 function num(value: unknown): number { const n = Number(value); return Number.isFinite(n) ? n : 0; }
 function jobTotal(job: Job): number {
   if (Array.isArray(job.payload_obj?.slot_ids)) return job.payload_obj.slot_ids.length;
+  if (Array.isArray(job.payload_obj?.post_ids)) return job.payload_obj.post_ids.length;
+  if (Array.isArray(job.payload_obj?.package_ids)) return job.payload_obj.package_ids.length;
   return num(job.result_obj?.total_posts ?? job.result_obj?.total ?? job.payload_obj?.max) || 1;
 }
 function jobLabel(job: Job): string {
   if (job.kind === "generate") return `${jobTotal(job)}개 글 작성`;
+  if (job.kind === "social_generate") return `${jobTotal(job)}개 숏츠 패키지 생성`;
+  if (job.kind === "video_render") return `${jobTotal(job)}개 Remotion manifest`;
+  if (job.kind === "site_deploy") return "사이트 배포 체크포인트";
   if (job.kind === "dedup") return "중복 검사";
   if (job.kind === "prune") return "품질 가지치기";
   if (job.kind === "indexing") return "Google 색인 요청";
